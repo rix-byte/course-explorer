@@ -275,3 +275,5 @@ html.no-logo #splash .logo, html.no-logo #brand .lg { display: none; }
   #legend { left: 8px; right: 8px; width: auto; top: 60px; bottom: auto; max-height: 40vh; }
   .tabs button { padding: 9px 12px; }
 }
+@media (max-width: 640px) { .eyebrow { display: none; } #profile { margin: 0 0 4px; } }
+@media (max-width: 640px) { #panel, #legend { background: rgba(16, 24, 34, 0.82); } }
