@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611251658`);
+await loadScript(`data/${KEY}.js?v=202611251659`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -795,10 +795,10 @@ function paperView() {
 
 // portrait phones: back the camera off until every point lands inside the free area above the bottom sheet
 function fitToScreen(mkView, dist, pts) {
-  const cam = camera.clone(), yb = 0.9 * (innerHeight - sheetH()) / innerHeight;
+  const cam = camera.clone(), yb = 0.86 * (innerHeight - sheetH()) / innerHeight;
   for (let i = 0; i < 6; i++) {
     const v = mkView(dist); cam.position.copy(v.pos); cam.lookAt(v.target); cam.updateMatrixWorld(true);
-    let r = 0; for (const q of pts) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x) / 0.92, Math.abs(nd.y) / yb); }
+    let r = 0; for (const q of pts) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x) / 0.8, Math.abs(nd.y) / yb); }
     if (Math.abs(r - 1) < 0.03) break;
     dist *= THREE.MathUtils.clamp(r, 0.6, 2);
   }
@@ -828,7 +828,7 @@ function wholeView() {
     tgt.y = heightAt(tgt.x, tgt.z) + 80;
     const mkView = (d) => ({ pos: tgt.clone().addScaledVector(dir, d * Math.cos(0.49)).add(new THREE.Vector3(0, d * Math.sin(0.49), 0)), target: tgt });
     let dist = ext * k * 0.84;   // home: the mountain fills the free area
-    if (phone()) dist = fitToScreen(mkView, dist, D.features.flatMap((f) => [V(f.path[0]), V(f.path[f.path.length - 1])]));
+    if (phone()) dist = fitToScreen(mkView, dist, [...D.features.flatMap((f) => [V(f.path[0]), V(f.path[f.path.length - 1])]), ...(D.hubs || []).map((h) => new THREE.Vector3(h.at[0], heightAt(h.at[0], h.at[1]), h.at[1]))]);
     return mkView(dist);
   }
   return { pos: mid.clone().addScaledVector(dir, ext * 0.95).add(new THREE.Vector3(0, ext * 0.75, 0)), target: mid };
