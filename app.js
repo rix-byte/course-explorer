@@ -88,7 +88,7 @@ const scene = new THREE.Scene();
 const HORIZON = WINTER ? 0xe3e9ef : 0xdde3dc;
 { // fog scaled to the venue so the whole-map view stays crisp
   const ext = Math.max(D.terrain.width, D.terrain.depth);
-  scene.fog = new THREE.Fog(HORIZON, SKI ? ext * 1.3 : 2500, SKI ? ext * 3.2 : 3500);
+  scene.fog = new THREE.Fog(HORIZON, SKI ? ext * 1.3 * (innerWidth <= 640 ? 2.4 : 1) : 2500, SKI ? ext * 3.2 * (innerWidth <= 640 ? 2.4 : 1) : 3500);   // phones stand further back: push the haze out too
 }
 
 const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 2, 30000);
@@ -97,7 +97,7 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.47;
 controls.minDistance = 30;
-controls.maxDistance = SKI ? Math.max(9000, D.terrain.width * 2) : 2500;
+controls.maxDistance = SKI ? Math.max(9000, D.terrain.width * 2) * (innerWidth <= 640 ? 1.8 : 1) : 2500;   // phones need to stand further back to fit the width
 controls.screenSpacePanning = false;
 
 const hemi = new THREE.HemisphereLight(WINTER ? 0xcfe0ff : 0xdfeaff, WINTER ? 0x8a8f99 : 0x4b5a3c, 1.1);
@@ -813,8 +813,18 @@ function wholeView() {
     // low panorama angle (~28°) like a painted piste map: mountain fills the frame, valley along the bottom
     const tgt = mid.clone();
     tgt.y = heightAt(tgt.x, tgt.z) + 80;
-    const dist = ext * k * 0.84 * (phone() ? 1.3 : 1);   // home: the mountain fills the free area
-    return { pos: tgt.clone().addScaledVector(dir, dist * Math.cos(0.49)).add(new THREE.Vector3(0, dist * Math.sin(0.49), 0)), target: tgt };
+    const mkView = (d) => ({ pos: tgt.clone().addScaledVector(dir, d * Math.cos(0.49)).add(new THREE.Vector3(0, d * Math.sin(0.49), 0)), target: tgt });
+    let dist = ext * k * 0.84;   // home: the mountain fills the free area
+    if (phone()) {   // portrait: measure where every run and lift lands on screen and back off until all of it fits
+      const cam = camera.clone(), pts2 = D.features.flatMap((f) => [V(f.path[0]), V(f.path[f.path.length - 1])]), yb = 0.9 * (innerHeight - sheetH()) / innerHeight;
+      for (let i = 0; i < 6; i++) {
+        const v = mkView(dist); cam.position.copy(v.pos); cam.lookAt(v.target); cam.updateMatrixWorld(true);
+        let r = 0; for (const q of pts2) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x) / 0.92, Math.abs(nd.y) / yb); }
+        if (Math.abs(r - 1) < 0.03) break;
+        dist *= THREE.MathUtils.clamp(r, 0.6, 2);
+      }
+    }
+    return mkView(dist);
   }
   return { pos: mid.clone().addScaledVector(dir, ext * 0.95).add(new THREE.Vector3(0, ext * 0.75, 0)), target: mid };
 }
@@ -1154,7 +1164,7 @@ function occluded(l) {
 const gp = new THREE.Vector3();
 function updateLabels() {
   const w = innerWidth, h = innerHeight, placed = [];
-  const maxD = SKI ? 11000 : 1500;
+  const maxD = SKI ? 11000 * (phone() ? 1.8 : 1) : 1500;
   for (const l of labels) { // highest priority first; drop anything that would overlap a placed label
     v3.copy(l.pos).project(camera);
     const enabled = l.on ? l.on() : groupOn[l.group] !== false;
@@ -1665,7 +1675,7 @@ function tick() {
 
 // debugging / capture handle: snap("p0","start") or snap("p0","fly",0.4) jumps without animation
 window.__ce = {
-  camera, controls, viewFor, heightAt, D, labels, terrain, occluded, THREE, T, X0, Z0, renderer, scene,
+  camera, controls, viewFor, wholeView, V, heightAt, D, labels, terrain, occluded, THREE, T, X0, Z0, renderer, scene,
   snap(id, mode, t = 0) {
     const f = D.features.find((x) => x.id === id);
     select(f, mode === "fly" ? "overview" : mode); anim = null; fly = null;
@@ -1690,6 +1700,8 @@ if (start) select(start, "overview");
 else if (SKI) renderIdle();
 else { current = tourList[0]; setHighlight(current); setSelLabels(current); renderPanel(current); }
 mark("scene built");
+// phones: the first frame is computed before the layout settles; frame the whole map again once it has
+if (phone() && !start) requestAnimationFrame(() => requestAnimationFrame(() => { if (!current && !anim) { const h = wholeView(); camera.position.copy(h.pos); controls.target.copy(h.target); controls.update(); invalidate(); } }));
 tick();
 setTimeout(() => $("splash")?.classList.add("gone"), 300);
 if (intro) {   // hold the paper-map view for a moment, then turn into the 3D map; any touch stops it
