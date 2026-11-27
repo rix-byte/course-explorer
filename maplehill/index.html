@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,1,0&display=block" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=202611281610">
+<link rel="stylesheet" href="style.css?v=202611272341">
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -32,9 +32,10 @@
 <div id="brand">
   <div class="lg"><img class="g" src="assets/logo-graphic.svg" alt=""><img class="t" src="assets/logo-text.svg" alt="Szczyrk Mountain Resort"><span class="gm" role="img" aria-label="Szczyrk Mountain Resort"></span><span class="tm"></span></div>
   <button class="ibtn ms" id="dn" title="Night mode" aria-label="Night mode" aria-pressed="false">light_mode</button>
-  <button class="tbtn" id="cambtn" title="Show webcams on the map" aria-pressed="false" hidden><span class="ms">videocam</span>Webcams</button>
+  <button class="tbtn" id="cambtn" title="Show webcams on the map" aria-pressed="false" hidden><span class="ms">videocam</span><span class="xl">Webcams</span></button>
 </div>
 <aside id="panel">
+  <button class="sheet-grab" aria-label="Show or hide the panel"><span></span></button>
   <nav class="tabs" id="tabs" aria-label="Map sections"></nav>
   <div class="phead">
     <button id="p-back" class="pback" hidden><span class="ms">arrow_back</span>Back to the list</button>
@@ -63,6 +64,7 @@
     <div class="wx-body"></div>
   </details>
 </div>
+<div id="legend-pill" hidden role="button" tabindex="0" aria-label="Clear the legend highlight"><span id="lp-t"></span><span class="ms">close</span></div>
 <div id="stpop" hidden>
   <div class="cam-box" role="dialog" aria-modal="true" aria-labelledby="stpop-title">
     <header><b id="stpop-title">Open / closed</b><button id="stpop-x" aria-label="Close">×</button></header>
@@ -77,6 +79,6 @@
     <p class="cam-credit">Live camera · Tatry Mountain Resorts · player by webcamera.pl</p>
   </div>
 </div>
-<script type="module" src="app.js?v=202611281610"></script>
+<script type="module" src="app.js?v=202611272341"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611281610`);
+await loadScript(`data/${KEY}.js?v=202611272341`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -112,7 +112,7 @@ const HORIZON = new THREE.Color(WINTER ? 0xd9e5ef : 0xdde3dc).lerp(new THREE.Col
   scene.fog = new THREE.Fog(HORIZON, SKI ? ext * 1.3 * (innerWidth <= 640 ? 2.4 : 1) : 2500, SKI ? ext * 3.2 * (innerWidth <= 640 ? 2.4 : 1) : 3500);   // phones stand further back: push the haze out too
 }
 
-const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 2, 30000);
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 2, 60000);
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -1007,7 +1007,9 @@ function viewFor(f, mode) {
     if (s2 < s1) side.negate();
   }
   const ext = Math.max(box.getSize(new THREE.Vector3()).length(), SKI ? 500 : 60) * (innerWidth / Math.max(innerWidth - panelOcc(), innerWidth * 0.5));   // zoom out a bit when the panel takes room
-  const mkO = SKI ? (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.75).addScaledVector(d, -e * 0.25).add(new THREE.Vector3(0, e * 0.55, 0)), target: mid })
+  // phone ski runs: stand above the start and look down the run, so it climbs the tall screen instead of lying across the narrow width
+  const mkO = SKI && phone() ? (e) => ({ pos: mid.clone().addScaledVector(d, -e * 0.7).add(new THREE.Vector3(0, e * 0.75, 0)), target: mid })
+    : SKI ? (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.75).addScaledVector(d, -e * 0.25).add(new THREE.Vector3(0, e * 0.55, 0)), target: mid })
     : (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.32).addScaledVector(d, -e * 0.22).add(new THREE.Vector3(0, e * 0.95, 0)), target: mid });   // disc golf: ~65 deg down, the line and both ends stay in view
   return mkO(phone() ? fitToScreen(mkO, ext, c.getSpacedPoints(30)) : ext);
 }
@@ -1075,7 +1077,10 @@ function wholeView() {
     // low panorama angle (~28°) like a painted piste map: mountain fills the frame, valley along the bottom
     const tgt = mid.clone();
     tgt.y = heightAt(tgt.x, tgt.z) + 80;
-    const mkView = (d) => ({ pos: tgt.clone().addScaledVector(dir, d * Math.cos(0.49)).add(new THREE.Vector3(0, d * Math.sin(0.49), 0)), target: tgt });
+    // phones: the mountain is wide and the screen is tall, so look along its long axis from higher up: it then fills the screen instead of shrinking to a strip
+    const tilt = phone() ? 0.95 : 0.49;
+    if (phone()) dir = D.terrain.width >= D.terrain.depth ? new THREE.Vector3(Math.sign(dir.x) || 1, 0, 0) : new THREE.Vector3(0, 0, Math.sign(dir.z) || 1);
+    const mkView = (d) => ({ pos: tgt.clone().addScaledVector(dir, d * Math.cos(tilt)).add(new THREE.Vector3(0, d * Math.sin(tilt), 0)), target: tgt });
     let dist = ext * k * 0.84;   // home: the mountain fills the free area
     if (phone()) dist = fitToScreen(mkView, dist, [...D.features.flatMap((f) => [V(f.path[0]), V(f.path[f.path.length - 1])]), ...(D.hubs || []).map((h) => new THREE.Vector3(h.at[0], heightAt(h.at[0], h.at[1]), h.at[1]))]);
     return mkView(dist);
@@ -1563,6 +1568,7 @@ function layersView() {   // closer than home, so icons and lifts read well
 }
 let tabNow = null, prevTab = null;
 function openTab(k) {
+  if (k) $("panel").classList.remove("min");
   if (SKI && !current && k !== tabNow && (k === "layers" || tabNow === "layers")) goTo(k === "layers" ? layersView() : wholeView(), 1.2);
   tabNow = k;
   document.querySelectorAll("#tabs [data-t]").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
@@ -1595,7 +1601,7 @@ $("groups").addEventListener("click", (e) => {
   if (d) { diffFilter = d.dataset.df || null; renderGroups(); openTab(tabNow); setMute(); labels.forEach((l) => { l.w = 0; }); invalidate(4); return; }
   const b = e.target.closest(".chip"); if (!b) return;
   const f = D.features.find((x) => x.id === b.dataset.id);
-  if (f === current) deselect(); else select(f, "overview");
+  if (f === current) { if (SKI) deselect(); else discIdle(); } else select(f, "overview");
 });
 
 // nothing selected yet: the resort's name, no highlight, no extra labels
@@ -1609,6 +1615,7 @@ function deselect() {   // back to the first view: nothing selected, whole map
   renderIdle(); goTo(wholeView(), 1.4);
 }
 function renderIdle() {
+  $('p-sub').classList.add('idle');
   $('p-back').hidden = true; if (SKI && prevTab) { openTab(prevTab); prevTab = null; }
   $("p-course").textContent = D.subtitle || ""; $("p-title").textContent = D.name;
   $("p-sub").textContent = "Pick a piste or lift to explore"; $("p-stats").innerHTML = "";
@@ -1616,7 +1623,9 @@ function renderIdle() {
 }
 
 function renderPanel(f) {
+  $('p-sub').classList.remove('idle');
   $('p-back').hidden = !SKI;
+  if (!SKI) document.body.classList.add("has-hole");
   $("p-course").textContent = `${D.name} / ${D.subtitle}`;
   const diffName = { green: "Beginner", blue: "Easy", red: "Intermediate", black: "Advanced", orange: "Freeride" };
   if (f.kind === "piste") {
@@ -1756,6 +1765,7 @@ const tourList = SKI ? listed.filter((f) => f.kind === "piste") : listed;
 function stopTour() {}
 $("whole").addEventListener("click", () => { if (SKI) deselect(); else goTo(wholeView(), 2); });
 $("p-back").addEventListener("click", () => deselect());
+$("panel").querySelector(".sheet-grab").addEventListener("click", () => { $("panel").classList.toggle("min"); updateViewOffset(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape" && SKI && current && $("cam").hidden && $("stpop").hidden) deselect(); });
 renderer.domElement.addEventListener("pointerdown", () => { if (fly || anim) { fly = null; anim = null; stopTour(); profileApi?.tick(-1); } });
 
@@ -1895,7 +1905,7 @@ function refreshStatusUI() {
   $("st-runs").innerHTML = `Runs <b>${runs.open}</b>/${runs.n} open${runs.preparing ? ` · ${runs.preparing} being prepared` : ""}`;
   $("st-badge").hidden = !STATUS.demo;
   $("status-strip").hidden = !on; $("stbtn").hidden = !on;
-  $("stbtn-t").textContent = `Lifts ${lifts.open}/${lifts.n} open`;
+  $("stbtn-t").innerHTML = `<span class="xl">Lifts </span>${lifts.open}/${lifts.n}<span class="xl"> open</span>`;
   const lbl = { open: "Open", preparing: "Being prepared", closed: "Closed" };
   const li = (name, sub, f) => `<li><span class="st-dot st-${f.status}"></span><b>${name}</b><span>${sub}</span><small>${lbl[f.status] || ""}</small></li>`;
   const sec = (h, list) => list.length ? `<h4>${h}</h4><ul>${list.join("")}</ul>` : "";
@@ -1929,7 +1939,7 @@ addEventListener("keydown", (e) => { if (e.key === "Escape" && !stpop.hidden) cl
     const render = (res, when) => {
       const [top, base] = [res[0], res[res.length - 1]], cur = top.current;
       $("wx-ico").textContent = ICON(cur.weather_code, cur.is_day);
-      $("wx-now").textContent = `${t0(cur.temperature_2m)} · snow ${Math.round(cur.snow_depth * 100)} cm`;
+      $("wx-now").innerHTML = `${t0(cur.temperature_2m)}<span class="xl"> · snow ${Math.round(cur.snow_depth * 100)} cm</span>`;
       const days = top.daily.time, today = days.indexOf(top.current.time.slice(0, 10)), sn = top.daily.snowfall_sum.map((v) => v ?? 0);
       const past = sn.slice(Math.max(0, today - 3), today).reduce((a, b) => a + b, 0), next = sn.slice(today + 1, today + 4).reduce((a, b) => a + b, 0);
       const max = Math.max(8, ...sn), W = 228, H = 54, bw = W / sn.length;
@@ -2022,14 +2032,19 @@ if (SKI) {
     + row('<span class="sw" style="background:repeating-linear-gradient(90deg,#2f9a45 0 6px,transparent 6px 10px)"></span>', "Szlak turystyczny · Hiking trail")
     + "<h5>Usługi · Services</h5>"
     + Object.keys(ICONS).filter((k) => used.has(k)).map((k) => row(ico(k), ICONS[k][2], "icon:" + k)).join("");
+  const setLegend = (tag, label) => {   // tag null clears; the pill on the map says what is shown and clears it again
+    legendSel = tag ? { tag, run: RUNS[tag] } : null;
+    $("layer-legend").querySelectorAll(".lg-row").forEach((x) => x.classList.toggle("on", !!tag && x.dataset.tag === tag));
+    $("legend-pill").hidden = !tag; $("lp-t").textContent = label || "";
+    if (nightGroup) nightGroup.visible = nightTarget > 0.5 || tag === "run:lit";
+    if (tag && phone()) $("panel").classList.add("min");   // phone: fold the sheet down to its tab bar so the map is what you see
+    updateViewOffset(); labels.forEach((l) => { l.w = 0; }); setMute(); invalidate(6);
+  };
   $("layer-legend").addEventListener("click", (e) => {
     const b = e.target.closest(".lg-row[data-tag]"); if (!b) return;
-    const tag = b.dataset.tag, same = legendSel?.tag === tag;
-    legendSel = same ? null : { tag, run: RUNS[tag] };
-    $("layer-legend").querySelectorAll(".lg-row").forEach((x) => x.classList.toggle("on", !same && x === b));
-    if (nightGroup) nightGroup.visible = nightTarget > 0.5 || legendSel?.tag === "run:lit";
-    labels.forEach((l) => { l.w = 0; }); setMute(); invalidate(6);
+    setLegend(legendSel?.tag === b.dataset.tag ? null : b.dataset.tag, b.querySelector("span:last-child").textContent);
   });
+  $("legend-pill").addEventListener("click", () => setLegend(null));
 
   if (D.info?.rescue_phone) {
     const r = $("rescue");
@@ -2122,7 +2137,9 @@ function tick() {
   updateLabels();
   // the selection line reads as tyre tracks up close; show it only from a distance
   if (highlight) highlight.visible = !SKI || camera.position.distanceTo(controls.target) > 450 && !fly;
-  sky.position.copy(camera.position); for (const r of rings) r.position.set(camera.position.x, 0, camera.position.z);
+  // phones back the camera out 15 km+ to fit the wide mountain in a narrow screen: the far ridge rings and the sky must stay behind the terrain, so they grow with the distance
+  const farK = Math.max(1, camera.position.distanceTo(controls.target) / 7000);
+  sky.scale.setScalar(farK); sky.position.copy(camera.position); for (const r of rings) { r.scale.setScalar(farK); r.position.set(camera.position.x, 0, camera.position.z); }
   renderer.render(scene, camera);
   if (dirty > 0) dirty--;
   if (!window.__ff) { window.__ff = 1; mark("first frame"); if (params.get("perf")) console.table(MARKS); }
@@ -2179,7 +2196,7 @@ function setCorridor(f) {
 if (!SKI) {
   const photo = !!D.ortho;
   $("layer-checks").innerHTML = "";
-  if (photo) {
+  if (photo && !SMALL) {
     document.body.insertAdjacentHTML("beforeend", '<div id="curtain-line"></div><div id="curtain"><button aria-label="Drag to reveal the aerial photo" class="ms">swap_horiz</button></div>');
     const cur = $("curtain");
     const setCurtain = (v) => {
@@ -2261,7 +2278,7 @@ renderHoleCard = function (f) {
 holeCard.addEventListener("click", (e) => { if (!SMALL || e.target.closest("a")) return; cardOpen = !cardOpen; if (current) renderHoleCard(current); });
 
 discIdle = function () {
-  current = null;
+  current = null; document.body.classList.remove("has-hole");
   if (highlight) { scene.remove(highlight); highlight.traverse((o) => o.geometry && o.geometry.dispose()); highlight = null; }
   for (const l of selLabels) { l.el.remove(); l.line?.remove(); l.dot?.remove(); labels.splice(labels.indexOf(l), 1); }
   selLabels = [];
@@ -2271,6 +2288,7 @@ discIdle = function () {
   document.querySelectorAll(".chip").forEach((b) => b.classList.remove("on"));
   renderHoleCard(null);
   history.replaceState(null, "", `?c=${KEY}&layout=${LAYOUT}`);
+  goTo(wholeView(), 1.4);   // back to the whole course
   invalidate(4);
 };
 $("whole").addEventListener("click", () => discIdle());
@@ -2455,6 +2473,29 @@ $("lost-list").addEventListener("click", (e) => {
   if (e.target.id === "lost-copy") navigator.clipboard?.writeText(JSON.stringify(lost)).then(() => toast("Copied"));
 });
 drawLost();
+
+// ---------- previous / next hole in the panel header; the floating buttons follow the sheet's height ----------
+{
+  const nav = document.createElement("div"); nav.className = "hole-nav";
+  nav.innerHTML = '<button id="hole-prev" class="ms" aria-label="Previous hole">chevron_left</button><button id="hole-next" class="ms" aria-label="Next hole">chevron_right</button>';
+  document.querySelector("#panel .ph").append(nav);
+  const step = (d) => {
+    if (!current) return;
+    const all = D.features.filter((x) => x.kind === "hole" && x.listed).sort((a, b) => a.number - b.number);
+    const i = all.indexOf(current); if (i < 0) return;
+    select(all[(i + d + all.length) % all.length], "overview");
+  };
+  $("hole-prev").addEventListener("click", () => step(-1));
+  $("hole-next").addEventListener("click", () => step(1));
+  const panel = $("panel");
+  const sheet = () => document.documentElement.style.setProperty("--sheet-h", `${panel.offsetHeight}px`);
+  sheet(); if (window.ResizeObserver) new ResizeObserver(sheet).observe(panel);
+  if (SMALL && D.ortho) {   // the aerial photo over the whole map, one tap
+    const b = document.createElement("button"); b.className = "ibtn ms"; b.id = "photobtn"; b.title = "Aerial photo"; b.setAttribute("aria-label", "Aerial photo"); b.setAttribute("aria-pressed", "false"); b.textContent = "satellite_alt";
+    $("brand").append(b);
+    b.addEventListener("click", () => { const on = ORTHO.uCurtain.value < 0.5; ORTHO.uCurtain.value = on ? 1 : 0; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); invalidate(4); });
+  }
+}
 
 // ---------- offline: cache the app, the data and the 3D library as they are loaded (not on localhost, to keep dev edits fresh) ----------
 }
