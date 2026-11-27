@@ -607,3 +607,14 @@ body.t-maple.has-hole .hole-nav { display: flex; gap: 6px; margin-left: auto; al
   body.t-maple #p-title { font-size: 22px; }
 }
 @media (max-width: 640px) { body.t-maple.has-hole #tabs { display: none; } body.t-maple #panel { max-height: 46vh; } }
+/* phone held sideways: a compact left panel, the hole numbers in one scrolling row, no chart */
+@media (max-height: 520px) and (orientation: landscape) {
+  body.t-maple #panel { bottom: 8px; max-height: calc(100vh - 16px); width: 290px; padding: 8px 12px 8px; }
+  body.t-maple #profile svg { display: none; }
+  body.t-maple #groups .chips { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+  body.t-maple #groups .chip { flex: 0 0 46px; }
+  body.t-maple #p-title { font-size: 22px; }
+  body.t-maple #brand .lg.img img { height: 54px; }
+  body.t-maple #brand { left: 50px; }
+  body.t-maple #holecard { top: 58px; }
+}

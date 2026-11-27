@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611272341`);
+await loadScript(`data/${KEY}.js?v=202611272353`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -1199,7 +1199,7 @@ const ico = (k, small) => {
 
 const labelsEl = $("labels");
 const labels = []; // {el, pos, prio, group}, kept sorted by priority
-const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: true, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
+const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: innerWidth > 640, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
 labelsEl.classList.add("no-snow");
 // thin stems tie every pin to its ground point
 const stems = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1344,18 +1344,19 @@ function addPin(t, x, z, prio, group, opts = {}) {
   const sp = new THREE.Sprite(pinMat(t, opts.depth !== false));
   sp.center.set(0.5, opts.lift ? -opts.lift : opts.below ? 1 : 0);              // the pin's bottom edge stands on the ground point (below: it hangs under it)
   sp.position.set(x, gy + 1.5, z);
-  sp.scale.set(...pinScale(t), 1);
+  const big = opts.kind === "pnum" && innerWidth <= 640 ? 1.35 : 1;   // phone: piste numbers are the main thing, so they are drawn bigger
+  sp.scale.set(...pinScale(t).map((v) => v * big), 1);
   sp.renderOrder = 5;
   sp.userData.feature = opts.feature || null;
   sp.userData.url = opts.url || null;
   sp.userData.cam = opts.cam || null;
   scene.add(sp);
   const l = { isSprite: true, sprite: sp, pos: sp.position, ground: new THREE.Vector3(x, gy, z), prio, group, on: opts.on || null,
-              variants: opts.variants || null, below: !!opts.below, lift: opts.lift || 0, tags: opts.tags || [], kind: opts.kind || null, f: opts.feature || null, cur: null, w: t.w, h: t.h, t };
+              variants: opts.variants || null, below: !!opts.below, lift: opts.lift || 0, tags: opts.tags || [], big, kind: opts.kind || null, f: opts.feature || null, cur: null, w: t.w * big, h: t.h * big, t };
   labels.push(l); labels.sort((p, q) => q.prio - p.prio); pins.push(l);
   return l;
 }
-function rescalePins() { for (const l of pins) { l.sprite.scale.set(...pinScale(l.t), 1); } }
+function rescalePins() { for (const l of pins) { l.sprite.scale.set(...pinScale(l.t).map((v) => v * (l.big || 1)), 1); } }
 function pickVariant(l) {
   const key = `${l.variants.snow && groupOn.snow}|${l.variants.night && groupOn.night}`;
   if (key === l.cur) return;
@@ -1379,7 +1380,9 @@ function buildPins() {
   }
   for (const p of D.pois || []) addPin(iconTex(p.icon), p.at[0], p.at[1], 30, "pois", { tags: ["icon:" + p.icon] });
   for (const c of D.webcams || []) addPin(camIconTex(), c.at[0], c.at[1], 100, "cams", { url: c.url, cam: c, depth: false, tags: ["icon:webcam"] });   // just a camera icon: clickable, no name pill to overlap
-  for (const h of D.hubs || []) addPin(hubTex(h), h.at[0], h.at[1], h.peak ? 85 : 80, h.peak ? "peaks" : h.icons?.length ? "services" : "places", { depth: false, lift: h.peak ? (peakRank.get(h) % 2 ? 5.2 : 2.6) : 0, tags: h.peak ? ["peak"] : (h.icons || []).map((k) => "icon:" + k) });
+  for (const h of D.hubs || []) addPin(hubTex(h), h.at[0], h.at[1], h.peak ? 85 : 80, h.peak ? "peaks" : h.icons?.length ? "services" : "places", { depth: false, lift: h.peak ? (peakRank.get(h) % 2 ? 5.2 : 2.6) : 0, tags: h.peak ? ["peak"] : [] });
+  // legend: picking one service shows just that icon at every place that has it, not the whole label with all its icons
+  for (const h of D.hubs || []) for (const k of new Set(h.icons || [])) addPin(iconTex(k), h.at[0], h.at[1], 70, "legendicons", { depth: false, tags: ["icon:" + k], on: () => !!legendSel });
   for (const a of D.attractions || []) { const q = a.at || a.line[Math.floor(a.line.length / 2)]; addPin(iconTex(a.icon), q[0], q[1], 50, "places", { depth: false, tags: ["icon:" + a.icon] }); }
 }
 // the two base stations carry the resort brands on the home view
@@ -1459,6 +1462,7 @@ function setSelLabels(f) {
       const t0 = f.path[0], dzs = [...f.dgpt.dz].sort((p, q) => Math.hypot(p[0] - t0[0], p[1] - t0[2]) - Math.hypot(q[0] - t0[0], q[1] - t0[2]));
       dzs.forEach(([x, z], i) => { const l = addLabel(dzs.length > 1 ? `DZ ${i + 1}` : "DZ", new THREE.Vector3(x, 0, z).add(up(4)), "badge", null, 93); l.el.style.background = "#0b1d3a"; l.el.style.boxShadow = "0 0 0 2px #ef5266"; selLabels.push(l); });
     }
+  } else if (SKI && phone()) {   // phone: no height tags on the map, they hide the line; the chart has the heights
   } else if (f.kind === "lift") {
     selLabels.push(addLabel(`<b>${Math.round(T.zmin + a.y - LIFT_CLEAR)} m</b><small>${f.from || "valley station"}</small>`, a.clone().add(up(18)), "", null, 100));
     selLabels.push(addLabel(`<b>${Math.round(T.zmin + b.y - LIFT_CLEAR)} m</b><small>${f.to || "top station"}</small>`, b.clone().add(up(18)), "", null, 100));
@@ -2477,7 +2481,7 @@ drawLost();
 // ---------- previous / next hole in the panel header; the floating buttons follow the sheet's height ----------
 {
   const nav = document.createElement("div"); nav.className = "hole-nav";
-  nav.innerHTML = '<button id="hole-prev" class="ms" aria-label="Previous hole">chevron_left</button><button id="hole-next" class="ms" aria-label="Next hole">chevron_right</button>';
+  nav.innerHTML = '<button id="hole-home" class="ms" aria-label="Back to the whole course" title="Whole course">home</button><button id="hole-prev" class="ms" aria-label="Previous hole">chevron_left</button><button id="hole-next" class="ms" aria-label="Next hole">chevron_right</button>';
   document.querySelector("#panel .ph").append(nav);
   const step = (d) => {
     if (!current) return;
@@ -2485,6 +2489,7 @@ drawLost();
     const i = all.indexOf(current); if (i < 0) return;
     select(all[(i + d + all.length) % all.length], "overview");
   };
+  $("hole-home").addEventListener("click", () => discIdle());
   $("hole-prev").addEventListener("click", () => step(-1));
   $("hole-next").addEventListener("click", () => step(1));
   const panel = $("panel");
