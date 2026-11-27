@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611272353`);
+await loadScript(`data/${KEY}.js?v=202611280005`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -1011,7 +1011,7 @@ function viewFor(f, mode) {
   const mkO = SKI && phone() ? (e) => ({ pos: mid.clone().addScaledVector(d, -e * 0.7).add(new THREE.Vector3(0, e * 0.75, 0)), target: mid })
     : SKI ? (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.75).addScaledVector(d, -e * 0.25).add(new THREE.Vector3(0, e * 0.55, 0)), target: mid })
     : (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.32).addScaledVector(d, -e * 0.22).add(new THREE.Vector3(0, e * 0.95, 0)), target: mid });   // disc golf: ~65 deg down, the line and both ends stay in view
-  return mkO(phone() ? fitToScreen(mkO, ext, c.getSpacedPoints(30)) : ext);
+  return mkO(compact() ? fitToScreen(mkO, ext, c.getSpacedPoints(30)) : ext);
 }
 
 // The side panel covers the left of the window: frame things in the free area to its right.
@@ -1021,6 +1021,7 @@ function panelOcc() {
   return p.getBoundingClientRect().right + 12;
 }
 const phone = () => innerWidth <= 640;
+function compact() { return innerWidth <= 640 || innerHeight <= 500; }   // phones, portrait or landscape
 const sheetH = () => (phone() ? $("panel").getBoundingClientRect().height : 0);
 const effAspect = () => { const a = (innerWidth - panelOcc()) / Math.max(innerHeight - sheetH(), 1); return a > 0.2 ? a : 16 / 9; };
 // shift the projection centre into the free area (labels, picking and rendering all use the same projection)
@@ -1046,10 +1047,10 @@ function paperView() {
 
 // portrait phones: back the camera off until every point lands inside the free area above the bottom sheet
 function fitToScreen(mkView, dist, pts) {
-  const cam = camera.clone(), yb = 0.86 * (innerHeight - sheetH()) / innerHeight;
+  const cam = camera.clone(), yb = 0.86 * (innerHeight - sheetH()) / innerHeight * (compact() && !phone() ? 1.05 : 1), xb = (compact() && !phone() ? 1.0 : 0.86) * Math.min(1, (innerWidth - panelOcc()) / innerWidth);   // landscape phone: stay clear of the side panel and the top bar
   for (let i = 0; i < 6; i++) {
     const v = mkView(dist); cam.position.copy(v.pos); cam.lookAt(v.target); cam.updateMatrixWorld(true);
-    let r = 0; for (const q of pts) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x) / 0.8, Math.abs(nd.y) / yb); }
+    let r = 0; for (const q of pts) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x) / xb, Math.abs(nd.y) / yb); }
     if (Math.abs(r - 1) < 0.03) break;
     dist *= THREE.MathUtils.clamp(r, 0.6, 2);
   }
@@ -1077,12 +1078,10 @@ function wholeView() {
     // low panorama angle (~28°) like a painted piste map: mountain fills the frame, valley along the bottom
     const tgt = mid.clone();
     tgt.y = heightAt(tgt.x, tgt.z) + 80;
-    // phones: the mountain is wide and the screen is tall, so look along its long axis from higher up: it then fills the screen instead of shrinking to a strip
-    const tilt = phone() ? 0.95 : 0.49;
-    if (phone()) dir = D.terrain.width >= D.terrain.depth ? new THREE.Vector3(Math.sign(dir.x) || 1, 0, 0) : new THREE.Vector3(0, 0, Math.sign(dir.z) || 1);
+    const tilt = 0.49;   // same angle as the printed map on every screen
     const mkView = (d) => ({ pos: tgt.clone().addScaledVector(dir, d * Math.cos(tilt)).add(new THREE.Vector3(0, d * Math.sin(tilt), 0)), target: tgt });
     let dist = ext * k * 0.84;   // home: the mountain fills the free area
-    if (phone()) dist = fitToScreen(mkView, dist, [...D.features.flatMap((f) => [V(f.path[0]), V(f.path[f.path.length - 1])]), ...(D.hubs || []).map((h) => new THREE.Vector3(h.at[0], heightAt(h.at[0], h.at[1]), h.at[1]))]);
+    if (compact()) dist = fitToScreen(mkView, dist, [...D.features.flatMap((f) => [V(f.path[0]), V(f.path[f.path.length - 1])]), ...(D.hubs || []).map((h) => new THREE.Vector3(h.at[0], heightAt(h.at[0], h.at[1]), h.at[1]))]);
     return mkView(dist);
   }
   return { pos: mid.clone().addScaledVector(dir, ext * 0.95).add(new THREE.Vector3(0, ext * 0.75, 0)), target: mid };
@@ -1199,7 +1198,7 @@ const ico = (k, small) => {
 
 const labelsEl = $("labels");
 const labels = []; // {el, pos, prio, group}, kept sorted by priority
-const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: innerWidth > 640, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
+const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: !(innerWidth <= 640 || innerHeight <= 500), places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
 labelsEl.classList.add("no-snow");
 // thin stems tie every pin to its ground point
 const stems = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1344,7 +1343,7 @@ function addPin(t, x, z, prio, group, opts = {}) {
   const sp = new THREE.Sprite(pinMat(t, opts.depth !== false));
   sp.center.set(0.5, opts.lift ? -opts.lift : opts.below ? 1 : 0);              // the pin's bottom edge stands on the ground point (below: it hangs under it)
   sp.position.set(x, gy + 1.5, z);
-  const big = opts.kind === "pnum" && innerWidth <= 640 ? 1.35 : 1;   // phone: piste numbers are the main thing, so they are drawn bigger
+  const big = opts.kind === "pnum" && compact() ? 0.85 : 1;   // phone: piste numbers are the main thing, so they are drawn bigger
   sp.scale.set(...pinScale(t).map((v) => v * big), 1);
   sp.renderOrder = 5;
   sp.userData.feature = opts.feature || null;
@@ -1352,7 +1351,7 @@ function addPin(t, x, z, prio, group, opts = {}) {
   sp.userData.cam = opts.cam || null;
   scene.add(sp);
   const l = { isSprite: true, sprite: sp, pos: sp.position, ground: new THREE.Vector3(x, gy, z), prio, group, on: opts.on || null,
-              variants: opts.variants || null, below: !!opts.below, lift: opts.lift || 0, tags: opts.tags || [], big, kind: opts.kind || null, f: opts.feature || null, cur: null, w: t.w * big, h: t.h * big, t };
+              variants: opts.variants || null, below: !!opts.below, lift: opts.lift || 0, tags: opts.tags || [], pkey: opts.pkey || null, big, kind: opts.kind || null, f: opts.feature || null, cur: null, w: t.w * big, h: t.h * big, t };
   labels.push(l); labels.sort((p, q) => q.prio - p.prio); pins.push(l);
   return l;
 }
@@ -1368,9 +1367,21 @@ const liftCat = (type) => type === "gondola" || type === "cable_car" ? "gondola"
 const peakRank = new Map((D.hubs || []).filter((h) => h.peak).sort((a, b) => a.at[0] - b.at[0]).map((h, i) => [h, i]));   // neighbouring peak names alternate high / low so they never touch
 function buildPins() {
   for (const f of D.features.filter((x) => x.kind === "piste" && x.ref && !x.ref.includes("&"))) {
-    const marks = pathPoints(f.path, 900);
-    for (const q of f.extra_paths || []) if (q.length > 50) marks.push(...pathPoints(q, 1e9, 0.5));
-    for (const m of marks) addPin(pnumTex(f.ref, PISTE_RGB[f.difficulty], stateOf(f)), m.x, m.z, 60, "pistes", { feature: f, kind: "pnum", depth: false, tags: ["run:" + f.difficulty, ...(f.lit ? ["run:lit"] : [])], on: () => groupOn.pistes && (!diffFilter || f.difficulty === diffFilter) });
+    // Every number gets several spots along its run; the label pass shows the first one that does not collide with a number already placed,
+    // so crowded places still end up with (almost) every run numbered. One number per ~900 m of run, extra branches get their own.
+    const spots = (path, perSeg, firstFrac) => {
+      const cur = new THREE.CatmullRomCurve3(path.map(([x, , z]) => new THREE.Vector3(x, 0, z))), nSeg = Math.max(1, Math.floor(cur.getLength() / perSeg)), out = [];
+      for (let i = 0; i < nSeg; i++) {
+        const u0 = nSeg === 1 ? firstFrac : (i + 0.5) / nSeg, list = [];
+        for (const o of [0, -0.3, 0.3, -0.15, 0.15, -0.45, 0.45]) list.push(cur.getPointAt(Math.min(0.96, Math.max(0.04, u0 + o / nSeg))));
+        out.push(list);
+      }
+      return out;
+    };
+    const groups = spots(f.path, 900, 0.4);
+    (f.extra_paths || []).forEach((q) => { if (q.length > 50) groups.push(...spots(q, 1e9, 0.5)); });
+    groups.forEach((list, gi) => list.forEach((m, k) => addPin(pnumTex(f.ref, PISTE_RGB[f.difficulty], stateOf(f)), m.x, m.z, 60 - k * 0.01, "pistes",
+      { feature: f, kind: "pnum", depth: false, pkey: f.ref + "#" + gi, tags: ["run:" + f.difficulty, ...(f.lit ? ["run:lit"] : [])], on: () => groupOn.pistes && (!diffFilter || f.difficulty === diffFilter) })));
     if (f.snowmaking)   // snowmaking stays an icon; evening skiing is the yellow edge on the run itself
       for (const m of pathPoints(f.path, 520, 0.5)) addPin(duoTex(true, false), m.x, m.z, 10, "icons", { tags: ["icon:snow"], on: () => groupOn.snow });
   }
@@ -1462,7 +1473,7 @@ function setSelLabels(f) {
       const t0 = f.path[0], dzs = [...f.dgpt.dz].sort((p, q) => Math.hypot(p[0] - t0[0], p[1] - t0[2]) - Math.hypot(q[0] - t0[0], q[1] - t0[2]));
       dzs.forEach(([x, z], i) => { const l = addLabel(dzs.length > 1 ? `DZ ${i + 1}` : "DZ", new THREE.Vector3(x, 0, z).add(up(4)), "badge", null, 93); l.el.style.background = "#0b1d3a"; l.el.style.boxShadow = "0 0 0 2px #ef5266"; selLabels.push(l); });
     }
-  } else if (SKI && phone()) {   // phone: no height tags on the map, they hide the line; the chart has the heights
+  } else if (SKI && compact()) {   // phone: no height tags on the map, they hide the line; the chart has the heights
   } else if (f.kind === "lift") {
     selLabels.push(addLabel(`<b>${Math.round(T.zmin + a.y - LIFT_CLEAR)} m</b><small>${f.from || "valley station"}</small>`, a.clone().add(up(18)), "", null, 100));
     selLabels.push(addLabel(`<b>${Math.round(T.zmin + b.y - LIFT_CLEAR)} m</b><small>${f.to || "top station"}</small>`, b.clone().add(up(18)), "", null, 100));
@@ -1493,7 +1504,7 @@ function occluded(l) {
 }
 const gp = new THREE.Vector3();
 function updateLabels() {
-  const w = innerWidth, h = innerHeight, placed = [];
+  const w = innerWidth, h = innerHeight, placed = [], placedKeys = new Set();
   const maxD = SKI ? 11000 * (phone() ? 1.8 : 1) : 1500;
   for (const l of labels) { // highest priority first; drop anything that would overlap a placed label
     v3.copy(l.pos).project(camera);
@@ -1507,8 +1518,9 @@ function updateLabels() {
     if (vis) {
       if (!l.isSprite && !l.w) { l.el.classList.remove("hidden"); l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
       const x = (v3.x * 0.5 + 0.5) * w, y = (-v3.y * 0.5 + 0.5) * h;
-      const gap = l.lift * l.h, r = l.below ? [x - l.w / 2 - 2, y + 3, x + l.w / 2 + 2, y + l.h + 2] : [x - l.w / 2 - 2, y - gap - l.h - 2, x + l.w / 2 + 2, y + 2];
-      if (l.prio < 100 && placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) vis = false;
+      const gap = l.lift * l.h, pd = l.kind === "pnum" ? 0 : 2, r = l.below ? [x - l.w / 2 - 2, y + 3, x + l.w / 2 + 2, y + l.h + 2] : [x - l.w / 2 - pd, y - gap - l.h - pd, x + l.w / 2 + pd, l.lift ? y - gap + 2 : y + pd];
+      if (l.pkey && placedKeys.has(l.pkey)) vis = false;   // this number already has its spot
+      else if (l.prio < 100 && placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) vis = false;
       else if (!l.isSprite) {
         placed.push(r); l.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
         // stem + dot down to the ground point the pin stands for
@@ -1521,7 +1533,7 @@ function updateLabels() {
           l.line.style.display = l.dot.style.display = "";
         } else if (l.line) l.line.style.display = l.dot.style.display = "none";
       } else {
-        placed.push(r);
+        placed.push(r); if (l.pkey) placedKeys.add(l.pkey);
         if (l.lift) {   // the name floats above its point on a thin stem, clear of the icons standing on the ground
           if (!l.line) { l.line = svgEl("line", { stroke: "rgba(20,32,43,.7)", "stroke-width": "1.3" }); l.dot = svgEl("circle", { r: "2.6", fill: "#fff", stroke: "rgba(20,32,43,.75)", "stroke-width": "1.2" }); }
           l.line.setAttribute("x1", x); l.line.setAttribute("y1", y); l.line.setAttribute("x2", x); l.line.setAttribute("y2", y - gap);
@@ -1558,7 +1570,8 @@ function renderGroups() {
   if (!SKI && D.layouts) {
     const seg = (name, list, cur) => `<h4>${name}</h4><div class="seg small" data-k="${name === "Tees" ? "layout" : "pin"}" style="margin-bottom:8px;flex-wrap:wrap">${
       list.map((v) => `<button data-val="${v}" class="${v === cur ? "on" : ""}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>`;
-    $("groups").querySelector(".pane").insertAdjacentHTML("afterbegin", seg("Tees", D.layouts, LAYOUT) + (D.pins?.length > 1 ? seg("Basket position", D.pins, PIN) : ""));
+    const step = `<div class="layout-step"><button data-step="-1" class="ms" aria-label="Previous layout">chevron_left</button><b>${LAYOUT[0].toUpperCase() + LAYOUT.slice(1)}</b><button data-step="1" class="ms" aria-label="Next layout">chevron_right</button></div>`;
+    $("groups").querySelector(".pane").insertAdjacentHTML("afterbegin", step + seg("Tees", D.layouts, LAYOUT) + (D.pins?.length > 1 ? seg("Basket position", D.pins, PIN) : ""));
   }
   if (current) document.querySelectorAll(".chip").forEach((b) => b.classList.toggle("on", b.dataset.id === current.id));
 }
@@ -1601,6 +1614,12 @@ if (!SKI && D.layouts) {
   });
 }
 $("groups").addEventListener("click", (e) => {
+  const st = e.target.closest("[data-step]");
+  if (st && D.layouts) {   // previous / next layout: press the matching button of the (hidden) list
+    const i = D.layouts.indexOf(LAYOUT), next = D.layouts[(i + +st.dataset.step + D.layouts.length) % D.layouts.length];
+    $("groups").querySelector(`.seg[data-k="layout"] [data-val="${next}"]`)?.click();
+    return;
+  }
   const d = e.target.closest("[data-df]");
   if (d) { diffFilter = d.dataset.df || null; renderGroups(); openTab(tabNow); setMute(); labels.forEach((l) => { l.w = 0; }); invalidate(4); return; }
   const b = e.target.closest(".chip"); if (!b) return;
@@ -2277,6 +2296,7 @@ renderHoleCard = function (f) {
     <ul>${rows.map((r) => `<li>${r}</li>`).join("")}</ul>${note ? `<p>${note}</p>` : ""}
     ${D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : ""}`;
   holeCard.classList.toggle("mini", SMALL && !cardOpen);
+  document.querySelector(".chip.on")?.scrollIntoView({ inline: "center", block: "nearest" });
   holeCard.hidden = false;
 };
 holeCard.addEventListener("click", (e) => { if (!SMALL || e.target.closest("a")) return; cardOpen = !cardOpen; if (current) renderHoleCard(current); });
@@ -2293,6 +2313,7 @@ discIdle = function () {
   renderHoleCard(null);
   history.replaceState(null, "", `?c=${KEY}&layout=${LAYOUT}`);
   goTo(wholeView(), 1.4);   // back to the whole course
+  openTab("g0");            // layouts and holes are on offer again
   invalidate(4);
 };
 $("whole").addEventListener("click", () => discIdle());

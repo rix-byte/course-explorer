@@ -618,3 +618,34 @@ body.t-maple.has-hole .hole-nav { display: flex; gap: 6px; margin-left: auto; al
   body.t-maple #brand { left: 50px; }
   body.t-maple #holecard { top: 58px; }
 }
+
+/* ---- landscape phone (short and wide): compact top bar, side panel kept short ---- */
+@media (max-height: 500px) and (min-width: 641px) {
+  .xl { display: none; }
+  #panel, body.t-szczyrk #panel { width: 250px; max-height: calc(100vh - 62px); bottom: 8px; left: 8px; }
+  #brand { top: 6px; left: 8px; gap: 6px; align-items: center; }
+  body.t-szczyrk #brand .gm { width: 34px; }
+  body.t-szczyrk #brand .tm { width: 72px; }
+  body.t-szczyrk #brand .lg { gap: 4px; padding: 0; }
+  body.t-szczyrk .ibtn, body.t-szczyrk .tbtn, body.t-szczyrk #topright .ibtn { width: 34px; height: 34px; padding: 0; justify-content: center; }
+  #topright { top: 6px; right: 8px; gap: 6px; }
+  body.t-szczyrk #wx > summary, body.t-szczyrk #stbtn { padding: 0 9px; height: 34px; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  #wx > summary::after { display: none; }
+  #rescue { bottom: 8px; right: 8px; }
+  #legend-pill { top: 50px; }
+  #hint, #credits { display: none; }
+}
+
+/* phone: layout as "< Reds >", all 18 holes in two rows, no tab row */
+.layout-step { display: none; }
+@media (max-width: 640px) {
+  body.t-maple .layout-step { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 2px 0 10px; }
+  body.t-maple.has-hole .layout-step { display: none; }
+  body.t-maple .layout-step b { font-size: 20px; color: var(--accent, #c62121); min-width: 150px; text-align: center; font-weight: 800; }
+  body.t-maple .layout-step button { width: 40px; height: 40px; border: 2px solid var(--accent, #c62121); border-radius: 50%; background: transparent; color: var(--accent, #c62121); font-size: 24px; display: grid; place-items: center; padding: 0; cursor: pointer; }
+  body.t-maple .layout-step button:active { background: var(--accent, #c62121); color: #fff; }
+  body.t-maple #groups .pane > h4, body.t-maple #groups .pane > .seg { display: none; }
+  body.t-maple:not(.has-hole) #groups .chips { display: grid; grid-template-columns: repeat(9, 1fr); gap: 5px; overflow: visible; }
+  body.t-maple:not(.has-hole) #groups .chip { flex: none; min-width: 0; padding: 0; min-height: 40px; }
+  body.t-maple #tabs { display: none; }
+}
