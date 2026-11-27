@@ -1515,6 +1515,7 @@ function updateLabels() {
     v3.copy(l.pos).project(camera);
     let enabled = l.on ? l.on() : groupOn[l.group] !== false;
     if (legendSel) enabled = !!l.tags?.includes(legendSel.tag);
+    else if (SKI && current && current.kind === "piste" && compact()) enabled = l.kind === "pnum" && l.f === current;   // phone: with a run selected the map shows just that run's number
     if (fly && l.kind === "pnum") enabled = false;   // no number badge under the ball while flying
     let vis = showLabels && enabled && v3.z < 1 && Math.abs(v3.x) < 1.05 && Math.abs(v3.y) < 1.05
       && camera.position.distanceTo(l.pos) < maxD;
@@ -1588,7 +1589,7 @@ function layersView() {   // closer than home, so icons and lifts read well
   const v = wholeView();
   return { pos: v.target.clone().add(v.pos.clone().sub(v.target).multiplyScalar(0.78)), target: v.target };
 }
-let tabNow = null, prevTab = null;
+let tabNow = null, prevTab = null, touched = false;   // touched: the user dragged the map since the last selection
 function openTab(k) {
   if (k) $("panel").classList.remove("min");
   if (SKI && !current && k !== tabNow && (k === "layers" || tabNow === "layers")) goTo(k === "layers" ? layersView() : wholeView(), 1.2);
@@ -1785,7 +1786,13 @@ function select(f, mode = "overview", onDone) {
   if (phone() || SKI) { if (tabNow) prevTab = tabNow; openTab(null); }   // fold the list away: the run gets the panel, the back button returns to the list
   history.replaceState(null, "", SKI ? `?c=${KEY}#${f.id}` : `?c=${KEY}&layout=${LAYOUT}&pin=${PIN}&hole=${f.number}`);
   if (mode === "fly") startFly(f, onDone);
-  else goTo(viewFor(f, mode));
+  else {
+    goTo(viewFor(f, mode), SKI && compact() ? 0.9 : 1.6);
+    if (SKI && compact()) setTimeout(() => {   // phones: the sheet and fonts settle after the tap, so frame the run once more with the final layout (unless the user already moved the map)
+      if (current === f && !fly && viewMode === mode && !touched) goTo(viewFor(f, mode), 0.5);
+    }, 450);
+  }
+  touched = false;
 }
 
 // tour and flyover: UI removed for now, the fly code above stays for later
@@ -1795,7 +1802,7 @@ $("whole").addEventListener("click", () => { if (SKI) deselect(); else goTo(whol
 $("p-back").addEventListener("click", () => deselect());
 $("panel").querySelector(".sheet-grab").addEventListener("click", () => { $("panel").classList.toggle("min"); updateViewOffset(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape" && SKI && current && $("cam").hidden && $("stpop").hidden) deselect(); });
-renderer.domElement.addEventListener("pointerdown", () => { if (fly || anim) { fly = null; anim = null; stopTour(); profileApi?.tick(-1); } });
+renderer.domElement.addEventListener("pointerdown", () => { touched = true; if (fly || anim) { fly = null; anim = null; stopTour(); profileApi?.tick(-1); } });
 
 $("panel-toggle").addEventListener("click", () => { $("panel").classList.toggle("collapsed"); updateViewOffset(); });
 
