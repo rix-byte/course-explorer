@@ -9,7 +9,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const KEY = /^[a-z0-9-]+$/.test(params.get("c") || "") ? params.get("c") : "szczyrk";
+const KEY = /^[a-z0-9-]+$/.test(params.get("c") || "") ? params.get("c") : "maplehill";
 
 function loadScript(src) {
   return new Promise((ok, fail) => {

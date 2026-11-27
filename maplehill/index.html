@@ -23,7 +23,7 @@
 <script>if ((new URLSearchParams(location.search).get("c") || "maplehill") === "maplehill") {   // first paint already in club style: no flash of the Szczyrk splash
   document.body.classList.add("t-maple");
   document.getElementById("splash").innerHTML = '<div class="logo"><img src="assets/maplehill-logo.png" alt=""></div><h1 id="splash-title">Maple Hill</h1><p id="splash-sub">Hanging the chains</p>';
-  document.head.insertAdjacentHTML("beforeend", '<link rel="manifest" href="manifest-maplehill.webmanifest"><meta name="theme-color" content="#c62121">');
+  document.head.insertAdjacentHTML("beforeend", '<meta name="theme-color" content="#c62121">');
 }</script>
 <div id="stage"></div>
 <div id="labels"></div>
