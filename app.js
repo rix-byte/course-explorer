@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611271023`);
+await loadScript(`data/${KEY}.js?v=202611271124`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -1226,7 +1226,6 @@ function openTab(k) {
   updateViewOffset();
 }
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-t]"); if (b) openTab(b.classList.contains("on") ? null : b.dataset.t); });
-if (!SKI) openTab("g0");
 if (!SKI && D.layouts) {
   const seg = (name, list, cur) => `<h4>${name}</h4><div class="seg small" data-k="${name === "Tees" ? "layout" : "pin"}" style="margin-bottom:8px">${
     list.map((v) => `<button data-val="${v}" class="${v === cur ? "on" : ""}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>`;
@@ -1698,6 +1697,7 @@ window.__ce = {
 const start = SKI ? D.features.find((f) => "#" + f.id === location.hash)
   : D.features.find((f) => f.listed && String(f.number) === params.get("hole"));
 refreshStatusUI();
+if (!SKI) openTab("g0");   // hole list open from the start (after the loop helpers exist)
 updateViewOffset();
 const w = wholeView();
 const intro = SKI && !start && params.get("intro") !== "0" && !matchMedia("(prefers-reduced-motion: reduce)").matches;

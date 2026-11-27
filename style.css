@@ -277,3 +277,4 @@ html.no-logo #splash .logo, html.no-logo #brand .lg { display: none; }
 }
 @media (max-width: 640px) { .eyebrow { display: none; } #profile { margin: 0 0 4px; } }
 @media (max-width: 640px) { #panel, #legend { background: rgba(16, 24, 34, 0.82); } }
+#rescue[hidden] { display: none; }
