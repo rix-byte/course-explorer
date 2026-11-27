@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611251659`);
+await loadScript(`data/${KEY}.js?v=202611271023`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -901,7 +901,7 @@ const ico = (k, small) => {
 
 const labelsEl = $("labels");
 const labels = []; // {el, pos, prio, group}, kept sorted by priority
-const groupOn = { cams: false, peaks: true, brand: true, pistes: true, lifts: false, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
+const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: false, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
 labelsEl.classList.add("no-snow");
 // thin stems tie every pin to its ground point
 const stems = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -979,7 +979,7 @@ const liftTex = (name, seats, type, st = 0) => cached(`l:${name}:${seats}:${type
     g.fillStyle = "#fff"; g.font = '15px "Material Symbols Rounded"'; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(LIFT_ICON[type] || "north_east", 12, 12.5);
     g.fillStyle = "#111"; g.font = "800 12.5px Manrope, system-ui, sans-serif"; g.textAlign = "left"; g.fillText(name, 25, 13);
     if (seats) { g.font = "700 9px Manrope, system-ui, sans-serif"; g.fillText(String(seats), 25 + tw + 2, 8); }
-    if (STATUS) {   // status dot in the corner of the tag
+    if (STATUS && st !== null) {   // status dot in the corner of the tag (none for lifts the feed does not list)
       g.fillStyle = st >= 1 ? "#9aa3ad" : st > 0 ? "#f2a516" : "#2fb35a"; g.beginPath(); g.arc(w - 5, 5, 3.8, 0, 7); g.fill();
       g.strokeStyle = "#fff"; g.lineWidth = 1.3; g.stroke();
     }
@@ -1060,7 +1060,7 @@ function buildPins() {
   }
   for (const f of D.features.filter((x) => x.kind === "lift")) {
     const m = f.cable[Math.floor(f.cable.length * 0.45)];
-    addPin(liftTex(f.name, f.seats, f.lift_type, stateOf(f)), m.x, m.z, 70, "lifts", { feature: f, depth: false, kind: "lift" });
+    addPin(liftTex(f.name, f.seats, f.lift_type, f.status ? stateOf(f) : null), m.x, m.z, 70, "lifts", { feature: f, depth: false, kind: "lift" });
   }
   for (const p of D.pois || []) addPin(iconTex(p.icon), p.at[0], p.at[1], 30, "pois");
   for (const c of D.webcams || []) addPin(camTex(c), c.at[0], c.at[1], 55, "cams", { url: c.url, cam: c, depth: false, below: true });
@@ -1452,7 +1452,7 @@ addEventListener("resize", () => {
 function restylePins() {
   for (const l of pins) {
     if (l.kind === "pnum") { l.t = pnumTex(l.f.ref, PISTE_RGB[l.f.difficulty], stateOf(l.f)); l.sprite.material = pinMat(l.t); }
-    else if (l.kind === "lift") { l.t = liftTex(l.f.name, l.f.seats, l.f.lift_type, stateOf(l.f)); l.sprite.material = pinMat(l.t, false); }
+    else if (l.kind === "lift") { l.t = liftTex(l.f.name, l.f.seats, l.f.lift_type, l.f.status ? stateOf(l.f) : null); l.sprite.material = pinMat(l.t, false); }
   }
 }
 function showFeatureStatus(f) {
@@ -1466,6 +1466,7 @@ function refreshStatusUI() {
   if (!STATUS) return;
   const on = statusVisible, count = (list) => { const c = { open: 0, preparing: 0, closed: 0, n: 0 }; for (const f of list) if (f.status) { c[f.status]++; c.n++; } return c; };
   const lifts = count(D.features.filter((f) => f.kind === "lift")), runs = count(D.features.filter((f) => f.kind === "piste" && f.listed && f.ref));
+  $("st-lifts").hidden = !lifts.n; $("st-runs").hidden = !runs.n;   // a feed may cover only lifts
   $("st-lifts").innerHTML = `Lifts <b>${lifts.open}</b>/${lifts.n} open`;
   $("st-runs").innerHTML = `Runs <b>${runs.open}</b>/${runs.n} open${runs.preparing ? ` · ${runs.preparing} being prepared` : ""}`;
   $("st-badge").hidden = !STATUS.demo;
