@@ -8,7 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,1,0&display=block" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=202611271124">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=202611281500">
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -17,42 +18,58 @@
 </script>
 </head>
 <body>
-<script>if ((new URLSearchParams(location.search).get("c") || "szczyrk") !== "szczyrk") document.documentElement.classList.add("no-logo");</script>
+<script>if ((new URLSearchParams(location.search).get("c") || "szczyrk") !== "szczyrk") document.documentElement.classList.add("no-logo"); else document.body.classList.add("t-szczyrk");</script>
 <div id="splash"><div class="logo"><img class="g" src="assets/logo-graphic.svg" alt=""><img class="t" src="assets/logo-text.svg" alt="Szczyrk Mountain Resort"></div><h1 id="splash-title">Course Explorer</h1><p id="splash-sub">Shaping the terrain</p></div>
+<script>if (new URLSearchParams(location.search).get("c") === "maplehill") {   // first paint already in club style: no flash of the Szczyrk splash
+  document.body.classList.add("t-maple");
+  document.getElementById("splash").innerHTML = '<div class="logo"><img src="assets/maplehill-logo.png" alt=""></div><h1 id="splash-title">Maple Hill</h1><p id="splash-sub">Hanging the chains</p>';
+  document.head.insertAdjacentHTML("beforeend", '<link rel="manifest" href="manifest-maplehill.webmanifest"><meta name="theme-color" content="#c62121">');
+}</script>
 <div id="stage"></div>
 <div id="labels"></div>
 <p id="hint">Drag to move · right-drag or Shift-drag to orbit · scroll to zoom</p>
 
 <div id="brand">
-  <div class="lg"><img class="g" src="assets/logo-graphic.svg" alt=""><img class="t" src="assets/logo-text.svg" alt="Szczyrk Mountain Resort"></div>
+  <div class="lg"><img class="g" src="assets/logo-graphic.svg" alt=""><img class="t" src="assets/logo-text.svg" alt="Szczyrk Mountain Resort"><span class="gm" role="img" aria-label="Szczyrk Mountain Resort"></span><span class="tm"></span></div>
   <button class="ibtn ms" id="dn" title="Night mode" aria-label="Night mode" aria-pressed="false">light_mode</button>
-  <button class="ibtn ms" id="cambtn" title="Webcams" aria-label="Show webcams" aria-pressed="false" hidden>videocam</button>
+  <button class="tbtn" id="cambtn" title="Show webcams on the map" aria-pressed="false" hidden><span class="ms">videocam</span>Webcams</button>
 </div>
 <aside id="panel">
-  <div id="status-strip" hidden><span id="st-lifts"></span><span id="st-runs"></span><span class="st-badge" id="st-badge" hidden>Demo data</span></div>
-  <header class="ph">
-    <div><p class="eyebrow" id="p-course"></p><h2 id="p-title"></h2></div>
-    <div class="stats" id="p-stats"></div>
-  </header>
-  <p class="sub" id="p-sub"></p>
-  <p class="st-line" id="p-status" hidden></p>
-  <div id="profile" hidden></div>
   <nav class="tabs" id="tabs" aria-label="Map sections"></nav>
+  <div class="phead">
+    <button id="p-back" class="pback" hidden><span class="ms">arrow_back</span>Back to the list</button>
+    <header class="ph">
+      <div><p class="eyebrow" id="p-course"></p><h2 id="p-title"></h2></div>
+      <div class="stats" id="p-stats"></div>
+    </header>
+    <p class="sub" id="p-sub"></p>
+    <p class="st-line" id="p-status" hidden></p>
+  </div>
+  <div id="profile" hidden></div>
   <div id="groups"></div>
   <div class="pane" id="pane-layers" data-p="layers" hidden>
     <div id="layer-checks"></div>
-    <button id="legend-btn">Legend</button>
+    <div id="layer-legend"></div>
     <p id="credits2"></p>
   </div>
 </aside>
-<div id="legend"></div>
 <a id="rescue" hidden></a>
 <button id="panel-toggle" aria-label="Toggle panel">☰</button>
 <p id="credits"></p>
-<details id="wx" hidden>
-  <summary><span class="ms" id="wx-ico">sunny</span><span id="wx-now">Weather</span></summary>
-  <div class="wx-body"></div>
-</details>
+<div id="topright">
+  <button id="stbtn" hidden aria-haspopup="dialog"><span class="ms">alt_route</span><span id="stbtn-t">Open / closed</span></button>
+  <details id="wx" hidden>
+    <summary><span class="ms" id="wx-ico">sunny</span><span id="wx-now">Weather</span></summary>
+    <div class="wx-body"></div>
+  </details>
+</div>
+<div id="stpop" hidden>
+  <div class="cam-box" role="dialog" aria-modal="true" aria-labelledby="stpop-title">
+    <header><b id="stpop-title">Open / closed</b><button id="stpop-x" aria-label="Close">×</button></header>
+    <div id="status-strip" hidden><span id="st-lifts"></span><span id="st-runs"></span><span class="st-badge" id="st-badge" hidden>Demo data</span></div>
+    <div id="stlist"></div>
+  </div>
+</div>
 <div id="cam" hidden>
   <div class="cam-box" role="dialog" aria-modal="true" aria-labelledby="cam-title">
     <header><b id="cam-title"></b><a id="cam-open" target="_blank" rel="noopener">Open on resort site ↗</a><button id="cam-x" aria-label="Close webcam">×</button></header>
@@ -60,6 +77,6 @@
     <p class="cam-credit">Live camera · Tatry Mountain Resorts · player by webcamera.pl</p>
   </div>
 </div>
-<script type="module" src="app.js?v=202611271124"></script>
+<script type="module" src="app.js?v=202611281500"></script>
 </body>
 </html>

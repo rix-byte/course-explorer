@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611271124`);
+await loadScript(`data/${KEY}.js?v=202611281500`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -34,9 +34,9 @@ if (STATUS) {
   for (const f of D.features) f.status = (f.kind === "lift" ? STATUS.lifts[String(f.name).toLowerCase()] : f.kind === "piste" ? STATUS.pistes[String(f.ref || "").toLowerCase()] : null) ?? null;
 }
 // disc golf: one hole line per number for the chosen tee set + pin position
-const LAYOUT = D.layouts && D.layouts.includes(params.get("layout")) ? params.get("layout") : (D.layouts || [])[0];
+let LAYOUT = D.layouts && D.layouts.includes(params.get("layout")) ? params.get("layout") : (D.layouts || [])[0];
 const PIN = D.pins && D.pins.includes(params.get("pin")) ? params.get("pin") : (D.pins || [])[0];
-if (!SKI) {
+function computeListed() {
   const byNum = new Map();
   for (const f of D.features) {
     if (f.kind !== "hole") continue;
@@ -58,12 +58,21 @@ if (!SKI) {
   }
   for (const { f, fallback } of byNum.values()) { f.listed = true; f.fallback = !!fallback; }
 }
+if (!SKI) computeListed();
 const WINTER = D.season === "winter";
 document.body.classList.toggle("winter", WINTER);
 document.title = `${D.name} · 3D ${SKI ? "Resort" : "Course"}`;
 $("splash-title").textContent = D.name;
+if (D.logo) { const lg = document.querySelector("#splash .logo"); lg.style.filter = "none"; lg.innerHTML = `<img src="${D.logo}" alt="" style="width:130px;border-radius:10px">`; }
+if (KEY === "maplehill") {   // club branding: logo in the corner, light theme, no day/night
+  document.body.classList.add("t-maple");
+  document.documentElement.dataset.theme = "light";
+  const lg = document.querySelector("#brand .lg"); lg.classList.add("img");
+  lg.innerHTML = `<a href="https://maplehilldiscgolf.com/" target="_blank" rel="noopener" aria-label="Maple Hill Disc Golf"><img src="assets/maplehill-emblem.png" alt="Maple Hill Disc Golf"></a>`;
+}
 $("splash-sub").textContent = SKI ? "Grooming the pistes" : "Hanging the chains";
 $("credits").textContent = $("credits2").textContent = D.attribution;
+if (!SKI) $("credits").hidden = true;   // disc golf: the credits are in the settings gear
 $("p-course").textContent = `${D.name} / ${D.subtitle}`;
 
 // ---------- units ----------
@@ -71,11 +80,23 @@ const IMPERIAL = D.units === "imperial";
 const fmtLen = (m) => IMPERIAL ? `${Math.round(m * 3.28084)}` : m >= 1000 ? (m / 1000).toFixed(2) : `${Math.round(m)}`;
 const lenUnit = (m) => IMPERIAL ? "ft" : m >= 1000 ? "km" : "m";
 const fmtDist = (m) => `≈ ${fmtLen(m)} ${lenUnit(m)}`;
+const SMALL = !SKI && (innerWidth <= 640 || (matchMedia("(pointer: coarse)").matches && Math.min(innerWidth, innerHeight) <= 820));   // a phone: lighter textures, fewer trees, smaller shadow map
 
+// ---------- geography: the scene is a metric frame on the lon/lat box (x east, z south). For "where am I" / "disc lost about here". ----------
+{
+  const G = D.terrain.geo;
+  if (G) window.CE = {   // CE.fromLonLat(lon, lat) -> {x, z, y}; CE.toLonLat(x, z) -> {lon, lat}; y = metres above the terrain minimum
+    fromLonLat: (lon, lat) => { const x = (lon - G.lon0) * G.kx, z = -(lat - G.lat0) * G.kz; return { x, z, y: heightAt(x, z) }; },
+    toLonLat: (x, z) => ({ lon: G.lon0 + x / G.kx, lat: G.lat0 - z / G.kz }),
+    view: () => ({ pos: camera.position.toArray(), target: controls.target.toArray() }),   // for checks
+    disc: () => ({ visible: discObj.visible, pos: discObj.position.toArray(), spin: discSpin.rotation.y }),
+    go: (pos, target) => goTo({ pos: new THREE.Vector3(...pos), target: new THREE.Vector3(...target) }, 0.2),
+  };
+}
 // ---------- renderer / scene ----------
 const stage = $("stage");
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, SMALL ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -85,7 +106,7 @@ renderer.toneMappingExposure = WINTER ? 0.92 : 1.0;
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const HORIZON = WINTER ? 0xe3e9ef : 0xdde3dc;
+const HORIZON = new THREE.Color(WINTER ? 0xd9e5ef : 0xdde3dc).lerp(new THREE.Color(WINTER ? 0x7fa6cf : 0x6f9fd6), 0.2).getHex();   // haze picks up a little of the sky blue
 { // fog scaled to the venue so the whole-map view stays crisp
   const ext = Math.max(D.terrain.width, D.terrain.depth);
   scene.fog = new THREE.Fog(HORIZON, SKI ? ext * 1.3 * (innerWidth <= 640 ? 2.4 : 1) : 2500, SKI ? ext * 3.2 * (innerWidth <= 640 ? 2.4 : 1) : 3500);   // phones stand further back: push the haze out too
@@ -104,7 +125,7 @@ const hemi = new THREE.HemisphereLight(WINTER ? 0xcfe0ff : 0xdfeaff, WINTER ? 0x
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 2.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.mapSize.set(SMALL ? 2048 : 4096, SMALL ? 2048 : 4096);
 const SH = SKI ? 1400 : 450;
 Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 10, far: 12000 });
 sun.shadow.bias = -0.0004;
@@ -200,16 +221,17 @@ let inAoi = () => true, skirtMat = null;
 }
 
 // Painted ground texture: base, forest floor, then the playable features.
-const PX = SKI && T.width > 4000 ? 3072 : 2048;
+const PX = SKI ? (T.width > 4000 ? 3072 : 2048) : (SMALL ? 2560 : 4096);
 const PY = Math.round(PX * T.depth / T.width);
-function makeCanvas() {
+function makeCanvas(tiny = false) {
   const c = document.createElement("canvas");
-  c.width = PX; c.height = Math.min(PY, 4096);
+  if (tiny) { c.width = c.height = 8; return c; }
+  c.width = PX; c.height = Math.min(PY, SKI ? 4096 : (SMALL ? 3200 : 5000));
   return c;
 }
 // Two ground layers: "real" (snow / grass as it looks up close) and "map" (piste-map colours,
 // transparent elsewhere). The terrain shader fades the map layer in with camera distance.
-const realCanvas = makeCanvas(), mapCanvas = makeCanvas();
+const realCanvas = makeCanvas(), mapCanvas = makeCanvas(!SKI);   // the piste-map overlay is only used by the ski maps
 let g = realCanvas.getContext("2d");
 const sx = realCanvas.width / T.width, sz = realCanvas.height / T.depth;
 const toPx = (x, z) => [(x - X0) * sx, (z - Z0) * sz];
@@ -259,7 +281,7 @@ function paintFeatures() {
     for (const t of D.context?.trails || []) strokePath(t.line.map(([x, z]) => [x, 0, z]), 4, t.kind === "skitour" ? "#e8792b" : t.colour, [14, 10]);
     g = realCanvas.getContext("2d");
   } else {
-    paintContext();
+    // fairway strips first, then water / roads / buildings on top, so a hole crossing a pond stays blue instead of turning grass-green
     for (const f of D.features.filter((h) => h.kind === "hole" && h.listed)) {
       strokePath(f.path, f.fairway_m * 1.25, "rgba(120,150,80,0.55)");
       strokePath(f.path, f.fairway_m, "#93b36a");
@@ -278,6 +300,7 @@ function paintFeatures() {
       g.fillStyle = "#b8b4aa"; g.fillRect(-1.5 * PPM, -0.9 * PPM, 4.5 * PPM, 1.8 * PPM);
       g.restore();
     }
+    paintContext();
   }
 }
 
@@ -303,6 +326,9 @@ function paintContext() {
   }
   for (const w of D.water || []) {
     fillPoly(w, "#4f7f93");
+    g.save(); g.clip(); g.lineJoin = "round";   // shallows: three lighter bands that fade toward the middle
+    for (const [wd, col] of [[16, "rgba(130,180,182,0.10)"], [9, "rgba(130,180,182,0.14)"], [4, "rgba(165,205,200,0.22)"]]) { g.lineWidth = wd * PPM; g.strokeStyle = col; g.stroke(); }
+    g.restore();
     g.lineWidth = 2.5 * PPM; g.strokeStyle = "#c9c2a6"; g.stroke(); // shoreline
   }
   for (const b of D.buildings || []) fillPoly(b.poly, "#c9c6bf");
@@ -318,6 +344,12 @@ function tex(c) {
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
+const ORTHO = { uOrtho: { value: null }, uCurtain: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) } };
+if (D.ortho) {
+  const ot = new THREE.TextureLoader().load(D.ortho, () => invalidate(4));
+  ot.colorSpace = THREE.SRGBColorSpace; ot.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  ORTHO.uOrtho.value = ot;
+}
 const slopeU = { value: 0 };   // slope heatmap strength, 0 = off
 const terrainMat = new THREE.MeshStandardMaterial({ map: tex(realCanvas), roughness: WINTER ? 0.82 : 0.95 });
 const mapTex = tex(mapCanvas);
@@ -325,12 +357,14 @@ terrainMat.onBeforeCompile = (sh) => {
   sh.uniforms.mapOverlay = { value: mapTex };
   sh.uniforms.fadeNear = { value: SKI ? 380 : 1e6 };
   sh.uniforms.fadeFar = { value: SKI ? 1500 : 2e6 };
-  sh.uniforms.uSlope = slopeU;
+  sh.uniforms.uSlope = slopeU; sh.uniforms.uSeasonT = TU.uSeason; sh.uniforms.uDetail = { value: SKI ? 0 : 1 };
+  Object.assign(sh.uniforms, ORTHO);
   sh.vertexShader = sh.vertexShader
-    .replace("#include <common>", "#include <common>\nvarying vec3 vWN;")
+    .replace("#include <common>", "#include <common>\nvarying vec3 vWN;\nvarying vec3 vWPos;")
+    .replace("#include <project_vertex>", "#include <project_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;")
     .replace("#include <beginnormal_vertex>", "#include <beginnormal_vertex>\nvWN = objectNormal;");
   sh.fragmentShader = sh.fragmentShader
-    .replace("#include <common>", "#include <common>\nuniform sampler2D mapOverlay;\nuniform float fadeNear, fadeFar, uSlope;\nvarying vec3 vWN;")
+    .replace("#include <common>", "#include <common>\nuniform sampler2D mapOverlay;\nuniform float fadeNear, fadeFar, uSlope, uCurtain, uSeasonT;\nuniform sampler2D uOrtho;\nuniform vec2 uRes;\nvarying vec3 vWN;\nvarying vec3 vWPos;\nuniform float uDetail;\nfloat h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nfloat vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }")
     .replace("#include <map_fragment>", `#include <map_fragment>
       vec4 ov = texture2D(mapOverlay, vMapUv);
       diffuseColor.rgb = mix(diffuseColor.rgb, ov.rgb, ov.a * smoothstep(fadeNear, fadeFar, length(vViewPosition)));
@@ -338,9 +372,28 @@ terrainMat.onBeforeCompile = (sh) => {
       vec3 hc = mix(vec3(0.30, 0.76, 0.40), vec3(0.20, 0.46, 0.88), smoothstep(4.0, 10.0, sl));
       hc = mix(hc, vec3(0.88, 0.20, 0.18), smoothstep(11.0, 18.0, sl));
       hc = mix(hc, vec3(0.16, 0.08, 0.22), smoothstep(19.0, 28.0, sl));
-      diffuseColor.rgb = mix(diffuseColor.rgb, hc, uSlope * 0.9);`);
+      diffuseColor.rgb = mix(diffuseColor.rgb, hc, uSlope * 0.9);
+      if (uDetail > 0.5) {   // turf that is not one flat green: broad patches, and grain / clumps only close to the camera
+        vec3 c0 = diffuseColor.rgb;
+        float grassM = smoothstep(0.0, 0.05, c0.g - max(c0.r, c0.b));
+        float dC = length(vViewPosition);
+        float nearA = 1.0 - smoothstep(30.0, 170.0, dC), nearB = 1.0 - smoothstep(5.0, 55.0, dC);
+        float v = (vn(vWPos.xz * 0.045) - 0.5) * 0.16;
+        if (nearA > 0.0) v += (vn(vWPos.xz * 0.30) - 0.5) * 0.14 * nearA;
+        if (nearB > 0.0) v += (vn(vWPos.xz * 2.6) - 0.5) * 0.24 * nearB;
+        diffuseColor.rgb *= 1.0 + v * grassM;
+      }
+      if (uSeasonT > 0.5) {   // autumn: grass -> orange-yellow, water darker
+        vec3 c = diffuseColor.rgb;
+        float wat = smoothstep(0.02, 0.10, c.b - c.r);
+        float grn = smoothstep(0.0, 0.06, c.g - c.r) * (1.0 - wat);
+        diffuseColor.rgb = mix(c, vec3(c.g * 1.12, c.g * 0.80, c.g * 0.30), grn * 0.72);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.74, 0.80, 0.86), wat);
+      }
+      if (gl_FragCoord.x < uCurtain * uRes.x) diffuseColor.rgb = texture2D(uOrtho, vMapUv).rgb;   // aerial photo curtain`);
 };
 const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+terrain.onBeforeRender = (r) => { r.getDrawingBufferSize(ORTHO.uRes.value); };
 terrain.receiveShadow = true;
 scene.add(terrain);
 mark("terrain textured");
@@ -361,7 +414,7 @@ function buildPisteRibbons() {
       const curve = new THREE.CatmullRomCurve3(path.map((q) => new THREE.Vector3(q[0], 0, q[2])), false, "centripetal");
       const n = Math.max(2, Math.ceil(curve.getLength() / 4));
       let bucket = byColour.get(f.difficulty);
-      if (!bucket) byColour.set(f.difficulty, (bucket = { pos: [], across: [], along: [], state: [], idx: [] }));
+      if (!bucket) byColour.set(f.difficulty, (bucket = { pos: [], across: [], along: [], state: [], mute: [], idx: [] }));
       const nLamp = Math.max(1, Math.floor(curve.getLength() / 42));   // same spacing as buildLanterns()
       const targets = f.lit ? (path === f.path ? [bucket, lit, glow] : [bucket, lit]) : [bucket];
       const bases = targets.map((b) => b.pos.length / 3), L = curve.getLength();
@@ -371,7 +424,7 @@ function buildPisteRibbons() {
         const len = Math.hypot(t.x, t.z) || 1, nx = -t.z / len, nz = t.x / len;
         for (let j = 0; j <= ACROSS; j++) {
           const a = j / ACROSS, off = (a - 0.5) * WIDTH, x = c.x + nx * off, z = c.z + nz * off;
-          for (const b of targets) { b.pos.push(x, heightAt(x, z) + 0.35, z); b.across.push(a); if (b.along) { b.along.push(i / n * L); b.state.push(stateOf(f)); } if (b.phase) b.phase.push(i / n * nLamp); }
+          for (const b of targets) { b.pos.push(x, heightAt(x, z) + 0.35, z); b.across.push(a); if (b.along) { b.along.push(i / n * L); b.state.push(stateOf(f)); b.mute.push(0); } if (b.phase) b.phase.push(i / n * nLamp); }
           if (f.lit) lit.side.push(nx, nz);
         }
         if (i > 0) targets.forEach((b, k) => { for (let j = 0; j < ACROSS; j++) {
@@ -390,16 +443,18 @@ function buildPisteRibbons() {
     geo.setAttribute("along", new THREE.Float32BufferAttribute(b.along, 1));
     b.stateAttr = new THREE.Float32BufferAttribute(b.state, 1); b.stateAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("state", b.stateAttr);
+    b.muteAttr = new THREE.Float32BufferAttribute(b.mute, 1); b.muteAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute("mute", b.muteAttr);
     geo.setIndex(b.idx);
     geo.computeVertexNormals();
     const mat = new THREE.MeshLambertMaterial({ color: PISTE_RGB[diff], side: THREE.DoubleSide, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader
-        .replace("#include <common>", "#include <common>\nattribute float across;\nattribute float along;\nattribute float state;\nvarying float vAcross;\nvarying float vAlong;\nvarying float vState;")
-        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvAcross = across; vAlong = along; vState = state;");
+        .replace("#include <common>", "#include <common>\nattribute float across;\nattribute float along;\nattribute float state;\nattribute float mute;\nvarying float vAcross;\nvarying float vAlong;\nvarying float vState;\nvarying float vMute;")
+        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvAcross = across; vAlong = along; vState = state; vMute = mute;");
       sh.fragmentShader = sh.fragmentShader
-        .replace("#include <common>", "#include <common>\nvarying float vAcross;\nvarying float vAlong;\nvarying float vState;")
+        .replace("#include <common>", "#include <common>\nvarying float vAcross;\nvarying float vAlong;\nvarying float vState;\nvarying float vMute;")
         .replace("#include <color_fragment>", `#include <color_fragment>
           float e = min(vAcross, 1.0 - vAcross);
           float edge = 1.0 - smoothstep(0.04, 0.075, e);
@@ -411,7 +466,9 @@ function buildPisteRibbons() {
           float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(lum * 0.85 + 0.18), closed * 0.9);
           diffuseColor.rgb *= 1.0 - 0.18 * closed * stripe;
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.62, 0.10), prep * 0.6 * stripe);`);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.62, 0.10), prep * 0.6 * stripe);
+          float lm = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(lm * 0.55 + 0.42), vMute * 0.72);`);
     };
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
@@ -470,6 +527,18 @@ function buildPisteRibbons() {
   }
 }
 if (SKI) buildPisteRibbons();
+// a selected piste stays in full colour, every other piste fades to a quiet grey so the one run reads (Fatmap-style)
+let legendSel = null;   // {tag, run?}: one legend entry picked; only matching pins show, pistes of other kinds fade
+let diffFilter = null;   // null = all pistes, else 'blue' | 'red' | 'black'...
+let lastSel = null;
+function setMute(sel = lastSel) {
+  lastSel = sel;
+  if (!ribbonRanges.length) return;
+  const hide = (r) => sel ? r.f !== sel : legendSel?.run ? !legendSel.run(r.f) : !!diffFilter && r.f.difficulty !== diffFilter;
+  for (const r of ribbonRanges) r.bucket.muteAttr.array.fill(hide(r) ? 1 : 0, r.start, r.start + r.count);
+  for (const b of new Set(ribbonRanges.map((r) => r.bucket))) b.muteAttr.needsUpdate = true;
+  invalidate(4);
+}
 mark("piste ribbons");
 
 
@@ -506,7 +575,7 @@ const HEAD_DAY = new THREE.Color(0x8d8a82), HEAD_NIGHT = new THREE.Color(0xfff1c
 // ---------- trees ----------
 function coniferGeo() {
   const parts = [];
-  const trunk = new THREE.CylinderGeometry(0.35, 0.5, 3, 5); trunk.translate(0, 1.5, 0);
+  const trunk = new THREE.CylinderGeometry(0.22, 0.34, 3, 10); trunk.translate(0, 1.5, 0);
   parts.push([trunk, 0x5a4330]);
   const tiers = [[3.6, 7, 3.2], [2.8, 6, 6.6], [1.9, 5, 9.6]];
   tiers.forEach(([r, h, y], i) => {
@@ -516,7 +585,7 @@ function coniferGeo() {
   return merge(parts);
 }
 function broadleafGeo() {
-  const trunk = new THREE.CylinderGeometry(0.4, 0.6, 5, 5); trunk.translate(0, 2.5, 0);
+  const trunk = new THREE.CylinderGeometry(0.26, 0.40, 5, 10); trunk.translate(0, 2.5, 0);
   const crown = new THREE.IcosahedronGeometry(4.6, 0); crown.scale(1, 0.9, 1); crown.translate(0, 8, 0);
   const crown2 = new THREE.IcosahedronGeometry(3.2, 0); crown2.translate(1.8, 10.2, 0.8);
   return merge([[trunk, 0x5a4330], [crown, 0x4d7a37], [crown2, 0x5b8a40]]);
@@ -546,9 +615,13 @@ function merge(parts) {
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 const treeGroup = new THREE.Group();
+// see-through mechanics for disc golf: trees can be flattened (canopy slider) or removed along the selected hole
+const TU = { uSeason: { value: 0 }, uCut: { value: 1e4 }, uSeg: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uSegN: { value: 0 }, uRad: { value: 18 }, uRadCut: { value: 30 }, uXray: { value: 1 } };
+let corridorOn = !SKI;
+const CLEAR_U = { value: SKI ? 70 : 24 };   // trees collapse within CLEAR_U of the camera (off while flying)
 // Trees are split into ~450 m cells. Each cell is its own instanced mesh, so cells outside the view are skipped (also in the
 // shadow pass), and cells farther than TREE_FAR swap to a 5-triangle cone that shares the same instance data.
-const TREE_FAR = 950, treeCells = [];
+const TREE_FAR = SMALL ? 520 : 950, treeCells = [];
 {
   const CELL = 450;
   const rnd = mulberry(3);
@@ -556,38 +629,106 @@ const TREE_FAR = 950, treeCells = [];
   const hiGeo = [coniferGeo(), broadleafGeo()];
   const loGeo = [merge([[new THREE.ConeGeometry(3.3, 15, 5, 1, true).translate(0, 7.5, 0), WINTER ? 0x2b4a38 : 0x2c5134]]),
                  merge([[new THREE.IcosahedronGeometry(4.8, 0).translate(0, 8.5, 0), 0x4d7a37]])];
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
+  const makeMat = (broad) => {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
   // trees right next to the camera collapse away so tee / ground-level views are not blocked
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.clearR = { value: SKI ? 70 : 24 };
+    sh.uniforms.clearR = CLEAR_U;
+    Object.assign(sh.uniforms, TU);
     sh.vertexShader = sh.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float clearR;")
+      .replace("#include <common>", "#include <common>\nuniform float clearR, uRad, uRadCut, uXray;\nuniform int uSegN;\nuniform vec4 uSeg[8];\nvarying float vHt, vGhost, vNear;\nvarying vec2 vTree;")
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+        vHt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y - (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).y;
+        vGhost = 0.0; vNear = 0.0;
+        vTree = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz;`)
       .replace("#include <project_vertex>", `#include <project_vertex>
         vec3 treeBase = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        if (distance(treeBase.xz, cameraPosition.xz) < clearR && cameraPosition.y - treeBase.y < 60.0) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);`);
+        if (distance(treeBase.xz, cameraPosition.xz) < clearR && cameraPosition.y - treeBase.y < 60.0) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+        for (int i = 0; i < 8; i++) {   // no trees within uRad of the selected hole's line
+          if (i >= uSegN) break;
+          vec2 a = uSeg[i].xy, ba = uSeg[i].zw - a, pa = treeBase.xz - a;
+          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+          float dd = length(pa - ba * h);
+          if (dd < uRad) vGhost = uXray;
+          if (dd < uRadCut) vNear = 1.0;
+        }`);
+    // fragment side: slice at uCut metres above each tree's base; ghost trees keep ~15% of their pixels (screen-door dither)
+    sh.uniforms.uCut = TU.uCut; sh.uniforms.uCurtainT = ORTHO.uCurtain; sh.uniforms.uResT = ORTHO.uRes;
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uCut, uSeason, uCurtainT;\nuniform vec2 uResT;\nvarying float vHt, vGhost, vNear;\nvarying vec2 vTree;")
+      .replace("void main() {", `void main() {
+        if (vNear > 0.5 && vHt > uCut) discard;   // canopy slider: only trees along the selected hole
+        if (gl_FragCoord.x < uCurtainT * uResT.x) discard;   // the aerial photo side shows the ground only
+        if (vGhost > 0.5 && fract(dot(floor(gl_FragCoord.xy * 0.5), vec2(0.7548777, 0.5698403))) > 0.3) discard;`)
+      .replace("#include <color_fragment>", "#include <color_fragment>\n        if (!gl_FrontFacing) diffuseColor.rgb = vec3(0.66, 0.50, 0.33);   // a sliced trunk / crown shows cut wood\n        if (vGhost > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.80, 0.93, 1.0), 0.5);");
+    sh.uniforms.uSeason = TU.uSeason;
+    if (!broad) sh.fragmentShader = sh.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
+        if (uSeason > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.50, 0.16), 0.24);   // autumn: a touch of yellow in the conifers`);
+    if (broad) {   // seasons: crowns are the green parts (trunks are brown); autumn recolours them per tree
+      sh.fragmentShader = sh.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
+        if (diffuseColor.g > diffuseColor.r + 0.01) {
+          if (uSeason > 0.5) {
+            float h = fract(sin(dot(vTree, vec2(12.9898, 78.233))) * 43758.5453);
+            vec3 c = h < 0.3 ? vec3(0.80, 0.22, 0.10) : h < 0.65 ? vec3(0.90, 0.50, 0.10) : vec3(0.93, 0.76, 0.18);
+            diffuseColor.rgb = c * (0.72 + 0.6 * diffuseColor.g);
+          }
+        }`);
+    }
   };
+  mat.customProgramCacheKey = () => (broad ? "tb" : "tc");
+  const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  depth.onBeforeCompile = (sh) => {   // the shadow pass: x-ray trees cast none, sliced trees cast the sliced shadow
+    Object.assign(sh.uniforms, { uRad: TU.uRad, uRadCut: TU.uRadCut, uXray: TU.uXray, uSegN: TU.uSegN, uSeg: TU.uSeg, uCut: TU.uCut });
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uRad, uRadCut, uXray;\nuniform int uSegN;\nuniform vec4 uSeg[8];\nvarying float vHt, vGhost, vNear;")
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+        vec3 tb0 = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        vHt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y - tb0.y;
+        vGhost = 0.0; vNear = 0.0;
+        for (int i = 0; i < 8; i++) {
+          if (i >= uSegN) break;
+          vec2 a = uSeg[i].xy, ba = uSeg[i].zw - a, pa = tb0.xz - a;
+          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+          float dd = length(pa - ba * h);
+          if (dd < uRad) vGhost = uXray;
+          if (dd < uRadCut) vNear = 1.0;
+        }`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uCut;\nvarying float vHt, vGhost, vNear;")
+      .replace("void main() {", `void main() {
+        if (vGhost > 0.5) discard;
+        if (vNear > 0.5 && vHt > uCut) discard;`);
+  };
+  depth.customProgramCacheKey = () => "treedepth";
+  mat.userData.depth = depth;
+  return mat; };
+  const mats = [makeMat(false), makeMat(true)];
   const cells = new Map();
-  for (const t of D.trees) {
+  let ti = 0;
+  for (const t0 of D.trees) {
+    if (SMALL && (ti++ % 5) < 2) continue;   // phones: 60% of the trees, a little larger to keep the look
+    const t = SMALL ? [t0[0], t0[1], t0[2] * 1.12, t0[3]] : t0;
     const ix = Math.floor((t[0] - X0) / CELL), iz = Math.floor((t[1] - Z0) / CELL), key = ix * 4096 + iz;
     let c = cells.get(key);
     if (!c) cells.set(key, (c = { cx: X0 + (ix + 0.5) * CELL, cz: Z0 + (iz + 0.5) * CELL, lists: [[], []] }));
-    c.lists[rnd() < share ? 0 : 1].push(t);
+    c.lists[t[3] ?? (rnd() < share ? 0 : 1)].push(t);   // t[3]: 0 conifer / 1 broadleaf read from the aerial, else a random share
   }
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), jc = new THREE.Color();
   for (const c of cells.values()) {
     const cell = { cx: c.cx, cz: c.cz, hi: [], lo: [] };
     c.lists.forEach((list, kind) => {
       if (!list.length) return;
-      const hi = new THREE.InstancedMesh(hiGeo[kind], mat, list.length);
+      const hi = new THREE.InstancedMesh(hiGeo[kind], mats[kind], list.length);
       list.forEach(([x, z, sc], i) => {
         q.setFromAxisAngle(up, rnd() * 6.28);
         const k = sc * (SKI ? 1.55 : 1.0); // Beskid spruce stands run ~20 m tall
         m4.compose(new THREE.Vector3(x, heightAt(x, z) - 0.3, z), q, new THREE.Vector3(k, k * (0.85 + rnd() * 0.35), k));
         hi.setMatrixAt(i, m4);
+        hi.setColorAt(i, jc.setRGB(0.88 + rnd() * 0.2, 0.86 + rnd() * 0.24, 0.88 + rnd() * 0.16));
       });
-      hi.castShadow = true; hi.receiveShadow = true;
-      const lo = new THREE.InstancedMesh(loGeo[kind], mat, list.length);
-      lo.instanceMatrix = hi.instanceMatrix;              // same instance data, cheaper shape
+      hi.castShadow = true; hi.receiveShadow = true; hi.customDepthMaterial = mats[kind].userData.depth;
+      const lo = new THREE.InstancedMesh(loGeo[kind], mats[kind], list.length);
+      lo.instanceMatrix = hi.instanceMatrix; lo.instanceColor = hi.instanceColor;              // same instance data, cheaper shape
       lo.receiveShadow = true; lo.visible = false;
       treeGroup.add(hi, lo); cell.hi.push(hi); cell.lo.push(lo);
     });
@@ -621,6 +762,7 @@ function liftCable(f) {
 }
 
 const furniture = new THREE.Group();
+let rebuildHoleFurniture = () => {};
 scene.add(furniture);
 if (SKI) {
   const steel = new THREE.MeshStandardMaterial({ color: 0x3a3f45, roughness: 0.5, metalness: 0.4 });
@@ -660,7 +802,7 @@ if (SKI) {
   const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec2, roughness: 0.35, metalness: 0.7 });
   const band = new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.6 });
   const pad = new THREE.MeshStandardMaterial({ color: 0xa8a49b, roughness: 0.95 });
-  const TEE_HEX = { blue: 0x3b6fb6, white: 0xe8e6df, red: 0xc0453a, gold: 0xd4a72c, black: 0x2a2a2a };
+  const TEE_HEX = { blue: 0x3b6fb6, white: 0xe8e6df, red: 0xc0453a, gold: 0xd4a72c, black: 0x2a2a2a, reds: 0xc0453a, whites: 0xe8e6df, blues: 0x3b6fb6, golds: 0xd4a72c, diamonds: 0x9fd0e8 };
   const padEdge = new THREE.MeshStandardMaterial({ color: TEE_HEX[LAYOUT] ?? 0xa8a49b, roughness: 0.8 });
   const wallM = new THREE.MeshStandardMaterial({ color: 0xe6e1d6, roughness: 0.9 });
   for (const bd of D.buildings || []) {
@@ -672,35 +814,86 @@ if (SKI) {
     m.castShadow = true; m.receiveShadow = true;
     furniture.add(m);
   }
+  let BASKET = null;
+  try {   // Pole Hole basket (SketchUp model, thinned to ~19k triangles by data/raw/basket/build_basket.py)
+    const r = await fetch("assets/basket.json");
+    if (r.ok) {
+      const j = await r.json();
+      const dec = (b64, Ty) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Ty(u.buffer); };
+      BASKET = {};
+      for (const k of ["ID5", "ID36"]) {
+        const gg = new THREE.BufferGeometry();
+        gg.setAttribute("position", new THREE.BufferAttribute(dec(j[k].pos, Float32Array), 3));
+        gg.setIndex(new THREE.BufferAttribute(dec(j[k].idx, Uint16Array), 1)); gg.computeBoundingSphere();
+        BASKET[k] = gg;
+      }
+    }
+  } catch (e) { BASKET = null; }
+  const steelD = new THREE.MeshStandardMaterial({ color: 0xc2c7cb, metalness: 0.55, roughness: 0.4, side: THREE.DoubleSide, flatShading: true });
+  const yellowD = new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.5, side: THREE.DoubleSide, flatShading: true });
+  const holeFurn = new THREE.Group();
+  furniture.add(holeFurn);
+  const chainMat = new THREE.LineBasicMaterial({ color: 0xdfe3e6 });
+  const yellow = new THREE.MeshStandardMaterial({ color: 0xf2c230, roughness: 0.45, metalness: 0.2 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xaeb4b8, roughness: 0.3, metalness: 0.85 });
+  const darkSteel = new THREE.MeshStandardMaterial({ color: 0x3a3f44, roughness: 0.5, metalness: 0.7 });
+  const chainGeo = (() => {   // 24 chains from the upper ring (r .30, y 1.22) down to the inner ring (r .15, y .86), with a slight twist
+    const v = [];
+    for (let i = 0; i < 24; i++) {
+      const a0 = i / 24 * Math.PI * 2, a1 = a0 + 0.22;
+      v.push(Math.cos(a0) * 0.30, 1.22, Math.sin(a0) * 0.30, Math.cos(a1) * 0.15, 0.86, Math.sin(a1) * 0.15);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3)); return g;
+  })();
+  const trayGeo = new THREE.LatheGeometry([[0.045, 0.66], [0.16, 0.7], [0.27, 0.78], [0.335, 0.86], [0.345, 0.93], [0.325, 0.93], [0.315, 0.87], [0.25, 0.8], [0.14, 0.73], [0.045, 0.7]].map(([r, y]) => new THREE.Vector2(r, y)), 24);
+  const capGeo = new THREE.LatheGeometry([[0.0, 1.5], [0.11, 1.47], [0.24, 1.38], [0.31, 1.27], [0.31, 1.22], [0.27, 1.22], [0.2, 1.3], [0.08, 1.37], [0.0, 1.38]].map(([r, y]) => new THREE.Vector2(r, y)), 24);
+  const poleGeo = new THREE.CylinderGeometry(0.028, 0.034, 1.5, 8);
+  const bandGeo = new THREE.TorusGeometry(0.31, 0.018, 6, 28);
+  function makeBasket() {
+    const g = new THREE.Group();
+    if (BASKET) {
+      g.add(new THREE.Mesh(BASKET.ID5, steelD), new THREE.Mesh(BASKET.ID36, yellowD));
+      g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      return g;
+    }
+    const pole = new THREE.Mesh(poleGeo, darkSteel); pole.position.y = 0.75;
+    const tray = new THREE.Mesh(trayGeo, steel);
+    const cap = new THREE.Mesh(capGeo, yellow);
+    const band = new THREE.Mesh(bandGeo, yellow); band.rotation.x = Math.PI / 2; band.position.y = 1.2;
+    const chains = new THREE.LineSegments(chainGeo, chainMat);
+    g.add(pole, tray, cap, band, chains);
+    g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    return g;
+  }
+  rebuildHoleFurniture = () => {
+  for (const o of [...holeFurn.children]) { holeFurn.remove(o); o.traverse((c) => { c.geometry?.dispose(); }); }
+  padEdge.color.setHex(TEE_HEX[LAYOUT] ?? 0xa8a49b);
   for (const f of D.features.filter((x) => x.kind === "hole" && x.listed)) {
     const b = f.path[f.path.length - 1];
-    const bk = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 6), metal); pole.position.y = 0.7;
-    const tray = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.18, 16, 1, true), metal); tray.position.y = 0.6;
-    const chains = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.55, 12, 1, true), new THREE.MeshStandardMaterial({ color: 0xd8dcde, metalness: 0.8, roughness: 0.3, wireframe: true }));
-    chains.position.y = 1.05;
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.08, 16), band); top.position.y = 1.36;
-    bk.add(pole, tray, chains, top);
-    bk.scale.setScalar(3); // exaggerated so it reads from fairway height
+    const bk = makeBasket();
+    bk.scale.setScalar(2.6); // a little larger than life so it reads from the fairway
     bk.position.set(b[0], heightAt(b[0], b[2]), b[2]);
     bk.traverse((o) => { o.castShadow = true; });
-    furniture.add(bk);
+    holeFurn.add(bk);
     const t = f.path[0], n = f.path[1];
     const tee = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.25, 1.8), [padEdge, padEdge, pad, pad, padEdge, padEdge]);
     tee.position.set(t[0], heightAt(t[0], t[2]) + 0.1, t[2]);
     tee.rotation.y = -Math.atan2(n[2] - t[2], n[0] - t[0]);
     tee.receiveShadow = true;
-    furniture.add(tee);
+    holeFurn.add(tee);
   }
+  };
+  rebuildHoleFurniture();
 }
 
 // ---------- selection highlight ----------
 let highlight = null;
+const dotTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.beginPath(); x.arc(32, 32, 30, 0, 7); x.fill(); return new THREE.CanvasTexture(c); })();
 function setHighlight(f) {
   if (highlight) { scene.remove(highlight); highlight.traverse((o) => o.geometry && o.geometry.dispose()); }
   const pts = f.kind === "lift" ? f.cable : f.path.map(([x, y, z]) => new THREE.Vector3(x, heightAt(x, z) + (SKI ? 3 : 0.6), z));
   const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
-  const color = f.kind === "lift" ? 0xffc83d : f.kind === "hole" ? 0xffffff : PISTE_RGB[f.difficulty];
+  const color = f.kind === "lift" ? 0xffc83d : f.kind === "hole" ? 0xffffff : SKI ? 0xed7102 : PISTE_RGB[f.difficulty];
   const segs = Math.max(24, pts.length * 3), r = SKI ? 2.6 : 0.35;
   highlight = new THREE.Group();
   if (SKI) { // white halo so dark (black-run) lines still pop against forest
@@ -710,8 +903,63 @@ function setHighlight(f) {
   }
   const core = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, r, 6),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: f.kind !== "hole" }));
-  core.renderOrder = 2; highlight.add(core);
+  if (f.kind !== "hole") { core.renderOrder = 2; highlight.add(core); }
+  if (SKI && f.kind === "piste") {   // green start dot, white finish dot
+    for (const [p, c] of [[pts[0], 0x2ecc71], [pts[pts.length - 1], 0xffffff]]) {
+      const d = new THREE.Mesh(new THREE.SphereGeometry(r * 2.6, 14, 10), new THREE.MeshBasicMaterial({ color: c })); d.position.copy(p); d.renderOrder = 3; highlight.add(d);
+    }
+  }
+  if (f.kind === "hole") {   // a dotted line: white dots with a dark-blue rim, round and crisp at any zoom, drawn over the trees
+    const n = Math.max(10, Math.round(curve.getLength() / 2.4)), dp = curve.getSpacedPoints(n);
+    const geo = new THREE.BufferGeometry().setFromPoints(dp);
+    const pr = renderer.getPixelRatio();
+    for (const [size, col, order] of (SMALL ? [[7, 0x1c4b94, 3], [4.2, 0xffffff, 4]] : [[9, 0x1c4b94, 3], [5.5, 0xffffff, 4]])) {
+      const pts2 = new THREE.Points(geo, new THREE.PointsMaterial({ size: size * pr, sizeAttenuation: false, map: dotTex, alphaTest: 0.5, transparent: true, depthTest: false, color: col }));
+      pts2.renderOrder = order; pts2.frustumCulled = false; highlight.add(pts2);
+    }
+  }
+  for (const k of f.ob_water || []) {   // out-of-bounds water: red shoreline
+    const pts3 = D.water[k].map(([x, z]) => new THREE.Vector3(x, heightAt(x, z) + 0.45, z));
+    const ring = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts3, true), pts3.length * 2, 0.4, 5, true), new THREE.MeshBasicMaterial({ color: 0xe5303f }));
+    ring.renderOrder = 2; highlight.add(ring);
+  }
+  if (f.kind === "hole") {
+    const a = V(f.path[0]), b = V(f.path[f.path.length - 1]);
+    for (const k of f.ob_water || []) {   // OB water: translucent red fill under the red shoreline
+      const poly = D.water[k], sh = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z)));
+      const fill = new THREE.Mesh(new THREE.ShapeGeometry(sh), new THREE.MeshBasicMaterial({ color: 0xe5303f, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide }));
+      fill.rotation.x = -Math.PI / 2; fill.position.y = heightAt(poly[0][0], poly[0][1]) + 0.35; fill.renderOrder = 1; highlight.add(fill);
+    }
+    for (const [mx, mz] of mandosOf(f)) {   // mando: two posts across the line
+      const h0 = heightAt(mx, mz), dir = horizDir(a, b), nx = -dir.z, nz = dir.x;
+      for (const sgn of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 4.5, 8), new THREE.MeshBasicMaterial({ color: 0xd4312c, depthTest: false }));
+        post.position.set(mx + nx * 1.6 * sgn, h0 + 2.25, mz + nz * 1.6 * sgn); post.renderOrder = 3; highlight.add(post);
+      }
+    }
+    const G = showMarkers ? f.dgpt : null;
+    if (G) {
+      if (G.trunks.length) {   // marked tree trunks from the caddie book: dark posts that stay visible through the x-ray
+        const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.2, 3.0, 8), new THREE.MeshBasicMaterial({ color: 0x0b1730, depthTest: false }), G.trunks.length);
+        const m4 = new THREE.Matrix4();
+        G.trunks.forEach(([x, z], i) => { m4.makeTranslation(x, heightAt(x, z) + 1.7, z); im.setMatrixAt(i, m4); });
+        im.renderOrder = 4; im.frustumCulled = false; highlight.add(im);
+      }
+      for (const line of G.ob) {   // OB line: a red ribbon on the ground and a low translucent wall
+        if (line.length < 2) continue;
+        const pos = [], idx = [];
+        line.forEach(([x, z], i) => { const y = heightAt(x, z); pos.push(x, y + 0.15, z, x, y + 1.8, z); if (i) { const k = (i - 1) * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); } });
+        const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+        const wall = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xef5266, transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false }));
+        wall.renderOrder = 2; wall.frustumCulled = false; highlight.add(wall);
+        const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line.map(([x, z]) => new THREE.Vector3(x, heightAt(x, z) + 0.25, z)), false, "centripetal"), Math.max(8, line.length * 2), 0.16, 5),
+          new THREE.MeshBasicMaterial({ color: 0xef5266, depthTest: false }));
+        tube.renderOrder = 3; highlight.add(tube);
+      }
+    }
+  }
   scene.add(highlight);
+  setMute(SKI && f.kind === "piste" ? f : null);
 }
 
 // ---------- geometry helpers for cameras ----------
@@ -759,7 +1007,8 @@ function viewFor(f, mode) {
     if (s2 < s1) side.negate();
   }
   const ext = Math.max(box.getSize(new THREE.Vector3()).length(), SKI ? 500 : 60) * (innerWidth / Math.max(innerWidth - panelOcc(), innerWidth * 0.5));   // zoom out a bit when the panel takes room
-  const mkO = (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.75).addScaledVector(d, -e * 0.25).add(new THREE.Vector3(0, e * 0.55, 0)), target: mid });
+  const mkO = SKI ? (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.75).addScaledVector(d, -e * 0.25).add(new THREE.Vector3(0, e * 0.55, 0)), target: mid })
+    : (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.32).addScaledVector(d, -e * 0.22).add(new THREE.Vector3(0, e * 0.95, 0)), target: mid });   // disc golf: ~65 deg down, the line and both ends stay in view
   return mkO(phone() ? fitToScreen(mkO, ext, c.getSpacedPoints(30)) : ext);
 }
 
@@ -847,13 +1096,56 @@ function goTo(view, dur = 1.6, arc = false) {
   if (arc) { anim.s0 = toSph(anim.p0.clone().sub(anim.t0)); anim.s1 = toSph(view.pos.clone().sub(view.target)); }
 }
 
+// a ball rolls ahead of the camera along the run during the fly-along (ski resorts only): bright orange with a soft white halo
+const ball = new THREE.Group(); ball.visible = false;
+if (SKI) {
+  ball.add(new THREE.Mesh(new THREE.SphereGeometry(2.6, 20, 14), new THREE.MeshStandardMaterial({ color: 0xed7102, emissive: 0xed7102, emissiveIntensity: 0.35, roughness: 0.4 })));
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(4.2, 20, 14), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }));
+  halo.renderOrder = 3; ball.add(halo); scene.add(ball);
+}
+function updateBall() {
+  const on = SKI && !!(fly && !fly.lift);
+  ball.visible = on;
+  if (!on) return;
+  const p = fly.curve.getPointAt(Math.min(1, fly.s / fly.L));
+  ball.position.set(p.x, heightAt(p.x, p.z) + 2.8, p.z);
+}
+// ---------- the flying disc (disc golf fly-along) ----------
+const discLift = (fl, sPos) => 1.4 + Math.min(9, Math.max(3, 0.05 * fl.L)) * Math.sin(Math.PI * Math.min(1, Math.max(0, sPos / fl.L)));   // metres above the ground: release, rise, fade
+const discObj = new THREE.Group(); discObj.visible = false; discObj.rotation.order = "YXZ";
+const discSpin = new THREE.Group(); discObj.add(discSpin);
+if (!SKI) {
+  const prof = [[0, 0.0185], [0.04, 0.0196], [0.072, 0.0172], [0.09, 0.0138], [0.0990, 0.0098], [0.1046, 0.0052], [0.1030, 0.0016], [0.0985, 0.0], [0.0895, 0.0006], [0.0850, 0.0098], [0.045, 0.0136], [0, 0.0136]];
+  const body = new THREE.Mesh(new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 48),
+    new THREE.MeshStandardMaterial({ color: 0xd8342a, roughness: 0.32, metalness: 0.05, side: THREE.DoubleSide }));
+  const stamp = new THREE.Mesh(new THREE.RingGeometry(0.052, 0.058, 48), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, side: THREE.DoubleSide }));
+  stamp.rotation.x = -Math.PI / 2; stamp.position.y = 0.0199;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.0022, 6, 48), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }));
+  rim.rotation.x = Math.PI / 2; rim.position.y = 0.0055;
+  discSpin.add(body, stamp, rim);
+  discSpin.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  discObj.scale.setScalar(5.5);
+  scene.add(discObj);
+}
+function updateDisc(dt) {
+  const on = !SKI && !!(fly && !fly.lift);
+  discObj.visible = on;
+  if (!on) return;
+  const fr = Math.min(1, fly.s / fly.L), c = fly.curve, p = c.getPointAt(fr), tg = c.getTangentAt(fr);
+  const lift = discLift(fly, fly.s), slope = discLift(fly, fly.s + 1) - lift;
+  discObj.position.set(p.x, p.y + lift, p.z);
+  const turn = Math.atan2(c.getTangentAt(Math.min(1, fr + 0.03)).x, c.getTangentAt(Math.min(1, fr + 0.03)).z) - Math.atan2(c.getTangentAt(Math.max(0, fr - 0.03)).x, c.getTangentAt(Math.max(0, fr - 0.03)).z);
+  discObj.rotation.set(-Math.atan(slope) + 0.1, Math.atan2(tg.x, tg.z), -0.36 + Math.max(-0.3, Math.min(0.3, turn * 2)));   // nose with the arc, a hyzer bank, leaning into bends
+  discSpin.rotation.y += dt * 26 * speedMul;
+}
 const SPEEDS = { Slow: 0.6, Normal: 1, Fast: 1.8, "4×": 4 };
 let speedMul = 1;
 
-function startFly(f, onDone) {
+function startFly(f, onDone, frac = 0) {
   anim = null;
   const c = pathCurve(f);
   const next = { f, curve: c, L: c.getLength(), s: 0, onDone, lift: f.kind === "lift" };
+  next.s = frac * next.L;
   goTo(flyPose(next), 1.2); // ease into the first pose, then the loop takes over
   fly = next;
 }
@@ -861,13 +1153,14 @@ function flyPose(fl) {
   const { curve: c, L, s } = fl;
   const p = c.getPointAt(Math.min(1, s / L));
   const ahead = c.getPointAt(Math.min(1, (s + (SKI ? 160 : 18)) / L));
+  if (!SKI && !fl.lift) { p.y += discLift(fl, s); ahead.y += discLift(fl, s + 18); }   // the disc is in the air
   const behind = horizDir(p, ahead.distanceTo(p) < 1 ? c.getPointAt(1) : ahead);
   if (fl.lift) {
     return { pos: p.clone().addScaledVector(behind, -25).add(new THREE.Vector3(0, 4, 0)), target: ahead.clone().add(new THREE.Vector3(0, 2, 0)) };
   }
   return SKI
-    ? { pos: p.clone().addScaledVector(behind, -75).add(new THREE.Vector3(0, 38, 0)), target: ahead }
-    : { pos: p.clone().addScaledVector(behind, -16).add(new THREE.Vector3(0, 8 + 6 * Math.sin(Math.PI * Math.min(1, s / L)), 0)), target: ahead.clone().add(new THREE.Vector3(0, 1, 0)) };
+    ? { pos: p.clone().addScaledVector(behind, -75).add(new THREE.Vector3(0, 38, 0)), target: ahead }   // zoomed out, the ball a little ahead
+    : { pos: p.clone().addScaledVector(behind, -15).add(new THREE.Vector3(0, 4.5 + 2.5 * Math.sin(Math.PI * Math.min(1, s / L)), 0)), target: ahead.clone().add(new THREE.Vector3(0, -0.6, 0)) };
 }
 
 // ---------- labels ----------
@@ -901,7 +1194,7 @@ const ico = (k, small) => {
 
 const labelsEl = $("labels");
 const labels = []; // {el, pos, prio, group}, kept sorted by priority
-const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: false, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
+const groupOn = { status: true, cams: false, peaks: true, brand: true, pistes: true, lifts: true, places: false, services: false, snow: false, night: false, pois: false, sel: true, icons: true };   // default map: piste numbers only
 labelsEl.classList.add("no-snow");
 // thin stems tie every pin to its ground point
 const stems = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -930,16 +1223,26 @@ function pathPoints(path, everyM, firstFrac = 0.35) {
 }
 
 let selLabels = [];
-const listed = D.features.filter((f) => f.listed).sort((a, b) => SKI ? 0 : a.number - b.number);
-listed.forEach((f) => { f.num = f.kind === "hole" ? f.number : f.kind === "lift" ? f.name : (f.ref || f.name); });
+let listed = [];
+const loadListed = () => {
+  listed = D.features.filter((f) => f.listed).sort((a, b) => SKI ? 0 : a.number - b.number);
+  listed.forEach((f) => { f.num = f.kind === "hole" ? f.number : f.kind === "lift" ? f.name : (f.ref || f.name); });
+};
+loadListed();
+let holeLabels = [];
+function buildHoleLabels() {
+  for (const l of holeLabels) { l.el.remove(); l.line?.remove(); l.dot?.remove(); labels.splice(labels.indexOf(l), 1); }
+  holeLabels = listed.map((f) => {
+    const lbl = addLabel(String(f.num), V(f.path[0]).add(up(4)), "badge", () => select(f, "overview"), 60, "pistes");
+    lbl.el.style.background = "#1d3b30";
+    return lbl;
+  });
+}
 
 if (SKI) {
   buildPinsWhenFontsReady();
 } else {
-  listed.forEach((f) => {
-    const lbl = addLabel(String(f.num), V(f.path[0]).add(up(4)), "badge", () => select(f, "overview"), 60, "pistes");
-    lbl.el.style.background = "#1d3b30";
-  });
+  buildHoleLabels();
 }
 
 
@@ -967,18 +1270,18 @@ const pnumTex = (ref, color, st = 0) => cached(`p:${ref}:${color}:${st}`, () => 
   g.shadowColor = "rgba(0,0,0,.35)"; g.shadowBlur = 3; g.shadowOffsetY = 1;
   g.fillStyle = st >= 1 ? "#8d96a0" : color; g.beginPath(); g.arc(13, 12.5, 10.5, 0, 7); g.fill();
   g.shadowColor = "transparent"; g.lineWidth = 2; g.strokeStyle = st > 0 && st < 1 ? "#f2a516" : "#fff"; g.stroke();
-  g.fillStyle = "#fff"; g.font = `700 ${ref.length > 2 ? 9 : 11}px Manrope, system-ui, sans-serif`;
+  g.fillStyle = "#fff"; g.font = `700 ${ref.length > 2 ? 9 : 11}px Montserrat, Manrope, system-ui, sans-serif`;
   g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(ref, 13, 13);
 }));
 const liftTex = (name, seats, type, st = 0) => cached(`l:${name}:${seats}:${type}:${st}`, () => {
-  const m = document.createElement("canvas").getContext("2d"); m.font = "800 12.5px Manrope, system-ui, sans-serif";
+  const m = document.createElement("canvas").getContext("2d"); m.font = "800 12.5px Montserrat, Manrope, system-ui, sans-serif";
   const tw = m.measureText(name).width, w = Math.ceil(26 + tw + (seats ? 11 : 0) + 4);
   return canvasTex(w, 24, (g) => {
     g.fillStyle = "#fff"; g.strokeStyle = "#111"; g.lineWidth = 2; g.beginPath(); g.roundRect(1, 1, w - 2, 22, 3); g.fill(); g.stroke();
     g.fillStyle = "#111"; g.fillRect(3, 3, 18, 18);
     g.fillStyle = "#fff"; g.font = '15px "Material Symbols Rounded"'; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(LIFT_ICON[type] || "north_east", 12, 12.5);
-    g.fillStyle = "#111"; g.font = "800 12.5px Manrope, system-ui, sans-serif"; g.textAlign = "left"; g.fillText(name, 25, 13);
-    if (seats) { g.font = "700 9px Manrope, system-ui, sans-serif"; g.fillText(String(seats), 25 + tw + 2, 8); }
+    g.fillStyle = "#111"; g.font = "800 12.5px Montserrat, Manrope, system-ui, sans-serif"; g.textAlign = "left"; g.fillText(name, 25, 13);
+    if (seats) { g.font = "700 9px Montserrat, Manrope, system-ui, sans-serif"; g.fillText(String(seats), 25 + tw + 2, 8); }
     if (STATUS && st !== null) {   // status dot in the corner of the tag (none for lifts the feed does not list)
       g.fillStyle = st >= 1 ? "#9aa3ad" : st > 0 ? "#f2a516" : "#2fb35a"; g.beginPath(); g.arc(w - 5, 5, 3.8, 0, 7); g.fill();
       g.strokeStyle = "#fff"; g.lineWidth = 1.3; g.stroke();
@@ -986,14 +1289,19 @@ const liftTex = (name, seats, type, st = 0) => cached(`l:${name}:${seats}:${type
   });
 });
 const camTex = (c) => cached(`c:${c.name}`, () => {
-  const m = document.createElement("canvas").getContext("2d"); m.font = "700 11px Manrope, system-ui, sans-serif";
+  const m = document.createElement("canvas").getContext("2d"); m.font = "700 11px Montserrat, Manrope, system-ui, sans-serif";
   const w = Math.ceil(26 + m.measureText(c.name).width + 8);
   return canvasTex(w, 24, (g) => {
     g.fillStyle = "#fff"; g.shadowColor = "rgba(0,0,0,.3)"; g.shadowBlur = 4; g.beginPath(); g.roundRect(1, 1, w - 2, 21, 5); g.fill(); g.shadowColor = "transparent";
     drawIcon(g, "webcam", 3, 3, 17, false);
-    g.fillStyle = "#15202b"; g.font = "700 11px Manrope, system-ui, sans-serif"; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(c.name, 24, 12);
+    g.fillStyle = "#15202b"; g.font = "700 11px Montserrat, Manrope, system-ui, sans-serif"; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(c.name, 24, 12);
   });
 });
+const camIconTex = () => cached("cam-icon", () => canvasTex(34, 34, (g) => {   // a bold round camera badge: easy to find from far away
+  g.shadowColor = "rgba(0,0,0,.4)"; g.shadowBlur = 4; g.fillStyle = "#fff"; g.beginPath(); g.arc(17, 17, 14, 0, 7); g.fill(); g.shadowColor = "transparent";
+  g.fillStyle = "#c0392b"; g.beginPath(); g.arc(17, 17, 11.5, 0, 7); g.fill();
+  g.fillStyle = "#fff"; g.font = '16px "Material Symbols Rounded"'; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("videocam", 17, 17.5);
+}));
 const iconTex = (k) => cached(`i:${k}`, () => canvasTex(21, 21, (g) => drawIcon(g, k, 1, 1, 19, false)));
 const duoTex = (snow, night) => cached(`d:${snow}:${night}`, () => canvasTex(snow && night ? 36 : 18, 18, (g) => {
   let x = 1; if (snow) { drawIcon(g, "snow", x, 1, 16, true); x += 18; } if (night) drawIcon(g, "night", x, 1, 16, true);
@@ -1003,9 +1311,9 @@ const duoTex = (snow, night) => cached(`d:${snow}:${night}`, () => canvasTex(sno
 const hubTex = (h) => cached(`h:${h.name}`, () => {
   const title = h.name.toUpperCase(), ele = h.ele ? ` ${h.ele} m` : "";
   const m = document.createElement("canvas").getContext("2d");
-  m.font = "800 11.5px Manrope, system-ui, sans-serif"; const tw = m.measureText(title).width;
-  m.font = "800 11.5px Manrope, system-ui, sans-serif"; const ew = ele ? m.measureText(ele).width : 0;
-  m.font = "600 10px Manrope, system-ui, sans-serif"; const sw = h.sub ? m.measureText(h.sub).width : 0;
+  m.font = "800 11.5px Montserrat, Manrope, system-ui, sans-serif"; const tw = m.measureText(title).width;
+  m.font = "800 11.5px Montserrat, Manrope, system-ui, sans-serif"; const ew = ele ? m.measureText(ele).width : 0;
+  m.font = "600 10px Montserrat, Manrope, system-ui, sans-serif"; const sw = h.sub ? m.measureText(h.sub).width : 0;
   const glyph = h.peak ? 18 : 0, icons = h.peak ? [] : h.icons || [], perRow = 7, rows = Math.ceil(icons.length / perRow);
   const iconW = Math.min(icons.length, perRow) * 21;
   const w = Math.ceil(Math.max(glyph + tw + ew, sw, iconW) + 10), hgt = 18 + (h.sub ? 14 : 0) + rows * 22 + 4;
@@ -1014,9 +1322,9 @@ const hubTex = (h) => cached(`h:${h.name}`, () => {
     const halo = (text, x, y) => { g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = 3.5; g.strokeText(text, x, y); g.fillStyle = "#15202b"; g.fillText(text, x, y); };
     let y = 9, x = (w - (glyph + tw + ew)) / 2;
     if (h.peak) { g.font = '16px "Material Symbols Rounded"'; halo("landscape", x, y + 0.5); x += glyph; }
-    g.font = "800 11.5px Manrope, system-ui, sans-serif"; halo(title, x, y); if (ele) halo(ele, x + tw, y);
+    g.font = "800 11.5px Montserrat, Manrope, system-ui, sans-serif"; halo(title, x, y); if (ele) halo(ele, x + tw, y);
     y += 14;
-    if (h.sub) { g.font = "600 10px Manrope, system-ui, sans-serif"; halo(h.sub, (w - sw) / 2, y - 1); y += 14; }
+    if (h.sub) { g.font = "600 10px Montserrat, Manrope, system-ui, sans-serif"; halo(h.sub, (w - sw) / 2, y - 1); y += 14; }
     icons.forEach((k, i) => { const r = Math.floor(i / perRow), c = i % perRow, rowN = Math.min(perRow, icons.length - r * perRow);
       drawIcon(g, k, (w - rowN * 21) / 2 + c * 21 + 1, y - 7 + r * 22, 19, false); });
   });
@@ -1029,7 +1337,7 @@ const pins = [];
 function addPin(t, x, z, prio, group, opts = {}) {
   const gy = heightAt(x, z);
   const sp = new THREE.Sprite(pinMat(t, opts.depth !== false));
-  sp.center.set(0.5, opts.below ? 1 : 0);              // the pin's bottom edge stands on the ground point (below: it hangs under it)
+  sp.center.set(0.5, opts.lift ? -opts.lift : opts.below ? 1 : 0);              // the pin's bottom edge stands on the ground point (below: it hangs under it)
   sp.position.set(x, gy + 1.5, z);
   sp.scale.set(...pinScale(t), 1);
   sp.renderOrder = 5;
@@ -1038,7 +1346,7 @@ function addPin(t, x, z, prio, group, opts = {}) {
   sp.userData.cam = opts.cam || null;
   scene.add(sp);
   const l = { isSprite: true, sprite: sp, pos: sp.position, ground: new THREE.Vector3(x, gy, z), prio, group, on: opts.on || null,
-              variants: opts.variants || null, below: !!opts.below, kind: opts.kind || null, f: opts.feature || null, cur: null, w: t.w, h: t.h, t };
+              variants: opts.variants || null, below: !!opts.below, lift: opts.lift || 0, tags: opts.tags || [], kind: opts.kind || null, f: opts.feature || null, cur: null, w: t.w, h: t.h, t };
   labels.push(l); labels.sort((p, q) => q.prio - p.prio); pins.push(l);
   return l;
 }
@@ -1050,42 +1358,43 @@ function pickVariant(l) {
   l.t = duoTex(l.variants.snow && groupOn.snow, l.variants.night && groupOn.night);
   l.sprite.material = pinMat(l.t); l.sprite.scale.set(...pinScale(l.t), 1); l.w = l.t.w; l.h = l.t.h;
 }
+const liftCat = (type) => type === "gondola" || type === "cable_car" ? "gondola" : type === "chair_lift" || type === "mixed_lift" ? "chair" : "surface";
+const peakRank = new Map((D.hubs || []).filter((h) => h.peak).sort((a, b) => a.at[0] - b.at[0]).map((h, i) => [h, i]));   // neighbouring peak names alternate high / low so they never touch
 function buildPins() {
   for (const f of D.features.filter((x) => x.kind === "piste" && x.ref && !x.ref.includes("&"))) {
     const marks = pathPoints(f.path, 900);
     for (const q of f.extra_paths || []) if (q.length > 50) marks.push(...pathPoints(q, 1e9, 0.5));
-    for (const m of marks) addPin(pnumTex(f.ref, PISTE_RGB[f.difficulty], stateOf(f)), m.x, m.z, 60, "pistes", { feature: f, kind: "pnum", depth: false });
+    for (const m of marks) addPin(pnumTex(f.ref, PISTE_RGB[f.difficulty], stateOf(f)), m.x, m.z, 60, "pistes", { feature: f, kind: "pnum", depth: false, tags: ["run:" + f.difficulty, ...(f.lit ? ["run:lit"] : [])], on: () => groupOn.pistes && (!diffFilter || f.difficulty === diffFilter) });
     if (f.snowmaking)   // snowmaking stays an icon; evening skiing is the yellow edge on the run itself
-      for (const m of pathPoints(f.path, 520, 0.5)) addPin(duoTex(true, false), m.x, m.z, 10, "icons", { on: () => groupOn.snow });
+      for (const m of pathPoints(f.path, 520, 0.5)) addPin(duoTex(true, false), m.x, m.z, 10, "icons", { tags: ["icon:snow"], on: () => groupOn.snow });
   }
   for (const f of D.features.filter((x) => x.kind === "lift")) {
     const m = f.cable[Math.floor(f.cable.length * 0.45)];
-    addPin(liftTex(f.name, f.seats, f.lift_type, f.status ? stateOf(f) : null), m.x, m.z, 70, "lifts", { feature: f, depth: false, kind: "lift" });
+    addPin(liftTex(f.name, f.seats, f.lift_type, f.status ? stateOf(f) : null), m.x, m.z, 70, "lifts", { feature: f, depth: false, kind: "lift", tags: ["lift:" + liftCat(f.lift_type)] });
   }
-  for (const p of D.pois || []) addPin(iconTex(p.icon), p.at[0], p.at[1], 30, "pois");
-  for (const c of D.webcams || []) addPin(camTex(c), c.at[0], c.at[1], 55, "cams", { url: c.url, cam: c, depth: false, below: true });
-  for (const h of D.hubs || []) addPin(hubTex(h), h.at[0], h.at[1], h.peak ? 85 : 80, h.peak ? "peaks" : h.icons?.length ? "services" : "places", { depth: false });
-  addBrandPins();
-  for (const a of D.attractions || []) { const q = a.at || a.line[Math.floor(a.line.length / 2)]; addPin(iconTex(a.icon), q[0], q[1], 50, "places", { depth: false }); }
+  for (const p of D.pois || []) addPin(iconTex(p.icon), p.at[0], p.at[1], 30, "pois", { tags: ["icon:" + p.icon] });
+  for (const c of D.webcams || []) addPin(camIconTex(), c.at[0], c.at[1], 100, "cams", { url: c.url, cam: c, depth: false, tags: ["icon:webcam"] });   // just a camera icon: clickable, no name pill to overlap
+  for (const h of D.hubs || []) addPin(hubTex(h), h.at[0], h.at[1], h.peak ? 85 : 80, h.peak ? "peaks" : h.icons?.length ? "services" : "places", { depth: false, lift: h.peak ? (peakRank.get(h) % 2 ? 5.2 : 2.6) : 0, tags: h.peak ? ["peak"] : (h.icons || []).map((k) => "icon:" + k) });
+  for (const a of D.attractions || []) { const q = a.at || a.line[Math.floor(a.line.length / 2)]; addPin(iconTex(a.icon), q[0], q[1], 50, "places", { depth: false, tags: ["icon:" + a.icon] }); }
 }
 // the two base stations carry the resort brands on the home view
 const brandTex = (name) => cached(`b:${name}`, () => {
-  const m = document.createElement("canvas").getContext("2d"); m.font = "800 13px Manrope, system-ui, sans-serif";
+  const m = document.createElement("canvas").getContext("2d"); m.font = "800 13px Montserrat, Manrope, system-ui, sans-serif";
   const w = Math.ceil(m.measureText(name).width + 38);
   return canvasTex(w, 28, (g) => {
     g.shadowColor = "rgba(0,0,0,.35)"; g.shadowBlur = 5; g.fillStyle = "#14202b"; g.beginPath(); g.roundRect(2, 1, w - 4, 24, 12); g.fill(); g.shadowColor = "transparent";
     g.fillStyle = "#fff"; g.font = '17px "Material Symbols Rounded"'; g.textBaseline = "middle"; g.textAlign = "left"; g.fillText("landscape", 8, 13.5);
-    g.font = "800 13px Manrope, system-ui, sans-serif"; g.fillText(name, 28, 13.5);
+    g.font = "800 13px Montserrat, Manrope, system-ui, sans-serif"; g.fillText(name, 28, 13.5);
   });
 });
 function addBrandPins() {
   for (const [hub, name] of [["Szczyrk Gondola", "SZCZYRK"], ["KL Skrzyczne", "SKRZYCZNE"]]) {
     const h = (D.hubs || []).find((x) => x.name === hub);
-    if (h) addPin(brandTex(name), h.at[0], h.at[1], 90, "brand", { depth: false, on: () => !groupOn.services });   // out of the way when all services show
+    if (h) addPin(brandTex(name), h.at[0], h.at[1], 90, "brand", { depth: false, lift: 2.2, on: () => !groupOn.services });   // out of the way when all services show
   }
 }
 function buildPinsWhenFontsReady() {
-  const ready = Promise.all([document.fonts.load('20px "Material Symbols Rounded"'), document.fonts.load("700 11px Manrope")]).catch(() => {});
+  const ready = Promise.all([document.fonts.load('20px "Material Symbols Rounded"'), document.fonts.load("700 11px Montserrat"), document.fonts.load("800 12px Montserrat")]).catch(() => {});
   Promise.race([ready, new Promise((r) => setTimeout(r, 3000))]).then(() => { buildPins(); invalidate(); });
 }
 
@@ -1136,8 +1445,15 @@ function setSelLabels(f) {
   selLabels = [];
   const c = pathCurve(f), a = c.getPointAt(0), b = c.getPointAt(1);
   if (f.kind === "hole") {
-    selLabels.push(addLabel("Tee", a.clone().add(up(2.5)), "dark", null, 100));
-    selLabels.push(addLabel(`<b>${fmtDist(f.length_m)}</b><small>tee to basket</small>`, b.clone().add(up(6)), "", null, 100));
+    for (const k of f.ob_water || []) {
+      const poly = D.water[k], cx = poly.reduce((a, q) => a + q[0], 0) / poly.length, cz = poly.reduce((a, q) => a + q[1], 0) / poly.length;
+      const l = addLabel("OB", new THREE.Vector3(cx, 0, cz).add(up(2)), "badge", null, 90); l.el.style.background = "#d4312c"; selLabels.push(l);
+    }
+    for (const [mx, mz] of mandosOf(f)) { const l = addLabel("MANDO", new THREE.Vector3(mx, 0, mz).add(up(5)), "badge", null, 95); l.el.style.background = "#d4312c"; selLabels.push(l); }
+    if (showMarkers && f.dgpt) {   // drop zones, numbered from the tee outwards
+      const t0 = f.path[0], dzs = [...f.dgpt.dz].sort((p, q) => Math.hypot(p[0] - t0[0], p[1] - t0[2]) - Math.hypot(q[0] - t0[0], q[1] - t0[2]));
+      dzs.forEach(([x, z], i) => { const l = addLabel(dzs.length > 1 ? `DZ ${i + 1}` : "DZ", new THREE.Vector3(x, 0, z).add(up(4)), "badge", null, 93); l.el.style.background = "#0b1d3a"; l.el.style.boxShadow = "0 0 0 2px #ef5266"; selLabels.push(l); });
+    }
   } else if (f.kind === "lift") {
     selLabels.push(addLabel(`<b>${Math.round(T.zmin + a.y - LIFT_CLEAR)} m</b><small>${f.from || "valley station"}</small>`, a.clone().add(up(18)), "", null, 100));
     selLabels.push(addLabel(`<b>${Math.round(T.zmin + b.y - LIFT_CLEAR)} m</b><small>${f.to || "top station"}</small>`, b.clone().add(up(18)), "", null, 100));
@@ -1172,7 +1488,9 @@ function updateLabels() {
   const maxD = SKI ? 11000 * (phone() ? 1.8 : 1) : 1500;
   for (const l of labels) { // highest priority first; drop anything that would overlap a placed label
     v3.copy(l.pos).project(camera);
-    const enabled = l.on ? l.on() : groupOn[l.group] !== false;
+    let enabled = l.on ? l.on() : groupOn[l.group] !== false;
+    if (legendSel) enabled = !!l.tags?.includes(legendSel.tag);
+    if (fly && l.kind === "pnum") enabled = false;   // no number badge under the ball while flying
     let vis = showLabels && enabled && v3.z < 1 && Math.abs(v3.x) < 1.05 && Math.abs(v3.y) < 1.05
       && camera.position.distanceTo(l.pos) < maxD;
     if (vis && l.prio < 100 && occluded(l)) vis = false;   // behind a ridge: do not float over it
@@ -1180,7 +1498,7 @@ function updateLabels() {
     if (vis) {
       if (!l.isSprite && !l.w) { l.el.classList.remove("hidden"); l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
       const x = (v3.x * 0.5 + 0.5) * w, y = (-v3.y * 0.5 + 0.5) * h;
-      const r = l.below ? [x - l.w / 2 - 2, y + 3, x + l.w / 2 + 2, y + l.h + 2] : [x - l.w / 2 - 2, y - l.h - 2, x + l.w / 2 + 2, y + 2];
+      const gap = l.lift * l.h, r = l.below ? [x - l.w / 2 - 2, y + 3, x + l.w / 2 + 2, y + l.h + 2] : [x - l.w / 2 - 2, y - gap - l.h - 2, x + l.w / 2 + 2, y + 2];
       if (l.prio < 100 && placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) vis = false;
       else if (!l.isSprite) {
         placed.push(r); l.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
@@ -1193,8 +1511,16 @@ function updateLabels() {
           l.dot.setAttribute("cx", gx); l.dot.setAttribute("cy", gy);
           l.line.style.display = l.dot.style.display = "";
         } else if (l.line) l.line.style.display = l.dot.style.display = "none";
-      } else placed.push(r);
+      } else {
+        placed.push(r);
+        if (l.lift) {   // the name floats above its point on a thin stem, clear of the icons standing on the ground
+          if (!l.line) { l.line = svgEl("line", { stroke: "rgba(20,32,43,.7)", "stroke-width": "1.3" }); l.dot = svgEl("circle", { r: "2.6", fill: "#fff", stroke: "rgba(20,32,43,.75)", "stroke-width": "1.2" }); }
+          l.line.setAttribute("x1", x); l.line.setAttribute("y1", y); l.line.setAttribute("x2", x); l.line.setAttribute("y2", y - gap);
+          l.dot.setAttribute("cx", x); l.dot.setAttribute("cy", y); l.line.style.display = l.dot.style.display = "";
+        }
+      }
     }
+    if (l.isSprite && l.line && !vis) l.line.style.display = l.dot.style.display = "none";
     if (l.isSprite) l.sprite.visible = vis;
     else {
       l.el.classList.toggle("hidden", !vis);
@@ -1205,19 +1531,37 @@ function updateLabels() {
 
 // ---------- panel ----------
 let current = null, viewMode = "overview";
-const groupDefs = SKI
+let renderHoleCard = () => {};
+let discIdle = () => {};   // disc golf: back to "no hole selected"
+let showMarkers = true;   // caddie-book markers (trunks, OB lines, drop zones, mandatories) on the selected hole
+const mandosOf = (f) => (showMarkers && f.dgpt ? f.dgpt.mandos : (f.mando ? [f.mando] : []));   // set by the disc golf block near the end
+const groupDefs = () => SKI
   ? [["Pistes", listed.filter((f) => f.kind === "piste"), true], ["Lifts", listed.filter((f) => f.kind === "lift"), true]]
   : [[`${D.subtitle_short || "Holes"}`, listed, false]];
-$("groups").innerHTML = groupDefs.map(([, list, wide], gi) => `<div class="pane" data-p="g${gi}" hidden><div class="chips${wide ? " wide" : ""}">${list.map((f) =>
-  `<button class="chip" data-id="${f.id}" title="${f.name}">${f.kind === "piste" ? `<i style="background:${PISTE_RGB[f.difficulty]}"></i>` : ""}${f.num}</button>`).join("")}</div></div>`).join("");
+function renderGroups() {
+  const open = document.querySelector("#groups .pane:not([hidden])") ? true : false;
+  const present = ["green", "blue", "red", "black", "orange"].filter((c) => listed.some((f) => f.kind === "piste" && f.difficulty === c));
+  const filterBar = SKI ? `<div class="dfilter" role="group" aria-label="Filter pistes by difficulty"><button data-df="" class="${diffFilter ? "" : "on"}">All</button>${present.map((c) =>
+    `<button data-df="${c}" class="${diffFilter === c ? "on" : ""}"><i style="background:${PISTE_RGB[c]}"></i>${{ green: "Green", blue: "Blue", red: "Red", black: "Black", orange: "Freeride" }[c]}</button>`).join("")}</div>` : "";
+  $("groups").innerHTML = groupDefs().map(([, list0, wide], gi) => { const list = diffFilter ? list0.filter((f) => f.kind !== "piste" || f.difficulty === diffFilter) : list0;
+    return `<div class="pane" data-p="g${gi}" ${open ? "" : "hidden"}>${gi === 0 ? filterBar : ""}<div class="chips${wide ? " wide" : ""}">${list.map((f) =>
+    `<button class="chip" data-id="${f.id}" title="${f.name}">${f.kind === "piste" ? `<i style="background:${PISTE_RGB[f.difficulty]}"></i>` : f.kind === "lift" ? `<span class="ms ci">${LIFT_ICON[f.lift_type] || "chair_alt"}</span>` : ""}${f.num}</button>`).join("")}</div></div>`; }).join("");
+  if (!SKI && D.layouts) {
+    const seg = (name, list, cur) => `<h4>${name}</h4><div class="seg small" data-k="${name === "Tees" ? "layout" : "pin"}" style="margin-bottom:8px;flex-wrap:wrap">${
+      list.map((v) => `<button data-val="${v}" class="${v === cur ? "on" : ""}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>`;
+    $("groups").querySelector(".pane").insertAdjacentHTML("afterbegin", seg("Tees", D.layouts, LAYOUT) + (D.pins?.length > 1 ? seg("Basket position", D.pins, PIN) : ""));
+  }
+  if (current) document.querySelectorAll(".chip").forEach((b) => b.classList.toggle("on", b.dataset.id === current.id));
+}
+renderGroups();
 // tabs: one section open at a time, click the open one again to fold it away
-$("tabs").innerHTML = [...groupDefs.map(([n], gi) => [`g${gi}`, n]), ["layers", "Layers"]].map(([k, n]) => `<button data-t="${k}">${n}</button>`).join("")
-  + '<button id="whole" class="ms" title="Whole map" aria-label="Whole map">zoom_out_map</button>';
+$("tabs").innerHTML = [...groupDefs().map(([n], gi) => [`g${gi}`, n]), ...(SKI ? [["layers", "Legend"]] : [])].map(([k, n]) => `<button data-t="${k}">${n}</button>`).join("")
+  + `<button id="whole" class="ms" title="Whole map" aria-label="Whole map">home</button>`;
 function layersView() {   // closer than home, so icons and lifts read well
   const v = wholeView();
   return { pos: v.target.clone().add(v.pos.clone().sub(v.target).multiplyScalar(0.78)), target: v.target };
 }
-let tabNow = null;
+let tabNow = null, prevTab = null;
 function openTab(k) {
   if (SKI && !current && k !== tabNow && (k === "layers" || tabNow === "layers")) goTo(k === "layers" ? layersView() : wholeView(), 1.2);
   tabNow = k;
@@ -1227,18 +1571,28 @@ function openTab(k) {
 }
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-t]"); if (b) openTab(b.classList.contains("on") ? null : b.dataset.t); });
 if (!SKI && D.layouts) {
-  const seg = (name, list, cur) => `<h4>${name}</h4><div class="seg small" data-k="${name === "Tees" ? "layout" : "pin"}" style="margin-bottom:8px">${
-    list.map((v) => `<button data-val="${v}" class="${v === cur ? "on" : ""}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>`;
-  $("groups").querySelector(".pane").insertAdjacentHTML("afterbegin", seg("Tees", D.layouts, LAYOUT) + (D.pins?.length > 1 ? seg("Basket position", D.pins, PIN) : ""));
+  // switching tees / layout re-lists the holes and redraws the ground in place: no reload, no loading screen
+  const switchLayout = (name) => {
+    if (name === LAYOUT) return;
+    const num = current?.number;
+    LAYOUT = name; computeListed(); loadListed();
+    paintGround(); paintFeatures(); terrainMat.map.needsUpdate = true;
+    rebuildHoleFurniture(); buildHoleLabels();
+    current = null; renderGroups();
+    const f = listed.find((x) => x.number === num);
+    if (f) { current = f; setHighlight(f); setSelLabels(f); renderPanel(f); setCorridor(f); history.replaceState(null, "", `?c=${KEY}&layout=${LAYOUT}&pin=${PIN}&hole=${f.number}`); }
+    else { history.replaceState(null, "", `?c=${KEY}&layout=${LAYOUT}`); setCorridor(null); }
+    invalidate(4);
+  };
   $("groups").addEventListener("click", (e) => {
     const b = e.target.closest("[data-val]"); if (!b) return;
-    const q = new URLSearchParams({ c: KEY, layout: LAYOUT, pin: PIN });
-    q.set(b.parentElement.dataset.k, b.dataset.val);
-    if (current) q.set("hole", current.number);
-    location.replace(`?${q}`);
+    if (b.parentElement.dataset.k === "layout") switchLayout(b.dataset.val);
+    else { const q = new URLSearchParams({ c: KEY, layout: LAYOUT, pin: PIN }); q.set("pin", b.dataset.val); if (current) q.set("hole", current.number); location.replace(`?${q}`); }
   });
 }
 $("groups").addEventListener("click", (e) => {
+  const d = e.target.closest("[data-df]");
+  if (d) { diffFilter = d.dataset.df || null; renderGroups(); openTab(tabNow); setMute(); labels.forEach((l) => { l.w = 0; }); invalidate(4); return; }
   const b = e.target.closest(".chip"); if (!b) return;
   const f = D.features.find((x) => x.id === b.dataset.id);
   if (f === current) deselect(); else select(f, "overview");
@@ -1249,23 +1603,25 @@ function deselect() {   // back to the first view: nothing selected, whole map
   current = null;
   if (highlight) { scene.remove(highlight); highlight.traverse((o) => o.geometry && o.geometry.dispose()); highlight = null; }
   for (const l of selLabels) { l.el.remove(); l.line?.remove(); l.dot?.remove(); labels.splice(labels.indexOf(l), 1); }
-  selLabels = []; profileDot.visible = false;
+  selLabels = []; profileDot.visible = false; profileApi = null; setMute(null);
   document.querySelectorAll(".chip.on").forEach((b) => b.classList.remove("on"));
   history.replaceState(null, "", `?c=${KEY}`);
   renderIdle(); goTo(wholeView(), 1.4);
 }
 function renderIdle() {
+  $('p-back').hidden = true; if (SKI && prevTab) { openTab(prevTab); prevTab = null; }
   $("p-course").textContent = D.subtitle || ""; $("p-title").textContent = D.name;
   $("p-sub").textContent = "Pick a piste or lift to explore"; $("p-stats").innerHTML = "";
   $("profile").hidden = true; $("p-status").hidden = true;
 }
 
 function renderPanel(f) {
+  $('p-back').hidden = !SKI;
   $("p-course").textContent = `${D.name} / ${D.subtitle}`;
   const diffName = { green: "Beginner", blue: "Easy", red: "Intermediate", black: "Advanced", orange: "Freeride" };
   if (f.kind === "piste") {
     $("p-title").textContent = f.ref ? `Piste ${f.ref}` : f.name;
-    $("p-sub").innerHTML = `<span class="dot" style="background:${PISTE_RGB[f.difficulty]}"></span>${f.ref ? f.name + " · " : ""}${diffName[f.difficulty]} · avg ${f.mean_pitch_deg}°, steepest ${f.max_pitch_deg}°${f.snowmaking ? ` ${ico("snow", 1)}` : ""}${f.lit ? ` ${ico("night", 1)}` : ""}`;
+    $("p-sub").innerHTML = `<span class="dot" style="background:${PISTE_RGB[f.difficulty]}"></span>${f.ref ? f.name + " · " : ""}${diffName[f.difficulty]}${f.snowmaking ? ` ${ico("snow", 1)}` : ""}${f.lit ? ` ${ico("night", 1)}` : ""}`;
     $("p-stats").innerHTML = `<div><b>${fmtLen(f.length_m)}</b><small>${lenUnit(f.length_m)}</small></div><div><b>${f.drop_m}</b><small>m drop</small></div>`;
   } else if (f.kind === "lift") {
     const lt = { chair_lift: "Chairlift", gondola: "Gondola", drag_lift: "Drag lift", "t-bar": "T-bar", platter: "Platter", magic_carpet: "Carpet", mixed_lift: "Combi lift" };
@@ -1274,63 +1630,122 @@ function renderPanel(f) {
     $("p-stats").innerHTML = `<div><b>${fmtLen(f.length_m)}</b><small>${lenUnit(f.length_m)}</small></div><div><b>${f.rise_m}</b><small>m rise</small></div>`;
   } else {
     $("p-title").textContent = `Hole ${String(f.number).padStart(2, "0")}.`;
-    $("p-sub").textContent = `${LAYOUT ? LAYOUT[0].toUpperCase() + LAYOUT.slice(1) + " tees" : ""}${f.fallback ? ` (no ${LAYOUT} tee mapped, showing ${f.tees.join("/") || "shared"})` : ""}${f.pin ? ", pin " + f.pin : ""}${f.elev_change_m ? ` · ${f.elev_change_m > 0 ? "uphill" : "downhill"} ${Math.abs(Math.round(f.elev_change_m * 3.28))} ft` : ""}`;
-    $("p-stats").innerHTML = `<div><b>${f.par ?? "–"}</b><small>Par</small></div><div><b>${fmtLen(f.length_m)}</b><small>${lenUnit(f.length_m)}</small></div>`;
+    $("p-sub").textContent = f.fallback ? `No ${LAYOUT} tee mapped for this hole, showing ${f.tees.join("/") || "the shared one"}` : "";   // par, length, slope and rules are in the hole card
+    $("p-stats").innerHTML = "";
+    $("p-status").hidden = true; $("p-status").textContent = "";
   }
   document.querySelectorAll(".chip").forEach((b) => b.classList.toggle("on", b.dataset.id === f.id));
   renderProfile(f);
   showFeatureStatus(f);
+  if (!SKI) renderHoleCard(f);
 }
 
 
 // ---------- elevation profile of the selected run, linked to a marker on the map ----------
 const markerTex = canvasTex(22, 30, (g) => {     // a small pin: yellow head, thin stem, a dot where it touches the ground
   g.strokeStyle = "rgba(20,32,43,.8)"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(11, 17); g.lineTo(11, 27); g.stroke();
-  g.fillStyle = "#ffd23f"; g.strokeStyle = "#fff"; g.lineWidth = 2.5; g.beginPath(); g.arc(11, 10, 7, 0, 7); g.fill(); g.stroke();
+  g.fillStyle = SKI ? "#ffd23f" : "#d8342a"; g.strokeStyle = "#fff"; g.lineWidth = 2.5; g.beginPath(); if (SKI) g.arc(11, 10, 7, 0, 7); else g.ellipse(11, 10, 8.5, 4.2, 0, 0, 7); g.fill(); g.stroke();
   g.fillStyle = "rgba(20,32,43,.85)"; g.beginPath(); g.arc(11, 27.5, 2, 0, 7); g.fill();
 });
 const profileDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerTex.tex, transparent: true, depthWrite: false, depthTest: false, sizeAttenuation: false }));
 profileDot.center.set(0.5, 0.05); profileDot.visible = false; profileDot.renderOrder = 9; scene.add(profileDot);
+let profileApi = null;   // the open profile: {f, tick(frac), setIcon}; the fly loop drives its cursor and the map marker
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const ANG_COL = (g) => g > 20 ? PISTE_RGB.black : g > 12 ? PISTE_RGB.red : PISTE_RGB.blue;   // chart colour = the rank that angle would get
+const DIFF_NAME = { green: "Beginner", blue: "Easy", red: "Intermediate", black: "Advanced", orange: "Freeride" };
 function renderProfile(f) {
   const box = $("profile");
+  profileApi = null;
   if (!f.path || f.path.length < 4) { box.hidden = true; return; }
+  const piste = SKI && f.kind === "piste";
   const pts = f.path, step = Math.max(1, Math.floor(pts.length / 110)), s = [];
   let dist = 0;
   for (let i = 0; i < pts.length; i += step) {
     if (i > 0) { const q = pts[Math.max(0, i - step)]; dist += Math.hypot(pts[i][0] - q[0], pts[i][2] - q[2]); }
     s.push({ d: dist, h: pts[i][1] + T.zmin, i });
   }
-  const hs = s.map((q) => q.h), hmin = Math.min(...hs), hmax = Math.max(...hs), L = Math.max(dist, 1), W = 268, H = 72;
-  const X = (d) => 2 + d / L * (W - 4), Y = (v) => H - 6 - (v - hmin) / Math.max(hmax - hmin, 1) * (H - 22);
-  const col = (g) => g > 20 ? "#222" : g > 12 ? "#d4312c" : "#2563c9";
-  let lines = "";
+  // pitch per sample: slope over a +-2 sample window, so DEM noise does not flicker the colours
+  s.forEach((q, k) => {
+    const a = s[Math.max(0, k - 2)], b = s[Math.min(s.length - 1, k + 2)];
+    q.g = Math.abs(Math.atan2(b.h - a.h, Math.max(b.d - a.d, 1))) * 180 / Math.PI;
+  });
+  const hs = s.map((q) => q.h), hmin = Math.min(...hs), hmax = Math.max(...hs), L = Math.max(dist, 1), W = 268, H = 100;
+  const X = (d) => 2 + d / L * (W - 4), Y = (v) => H - 6 - (v - hmin) / Math.max(hmax - hmin, 1) * (H - 26);
+  let strips = "", lines = "";
   for (let k = 1; k < s.length; k++) {
-    const g = Math.abs(Math.atan2(s[k].h - s[k - 1].h, Math.max(s[k].d - s[k - 1].d, 1))) * 180 / Math.PI;
-    lines += `<line x1="${X(s[k - 1].d).toFixed(1)}" y1="${Y(s[k - 1].h).toFixed(1)}" x2="${X(s[k].d).toFixed(1)}" y2="${Y(s[k].h).toFixed(1)}" stroke="${col(g)}" stroke-width="2.4" stroke-linecap="round"/>`;
+    const c = piste ? ANG_COL(s[k].g) : "#cfe3f5", x0 = X(s[k - 1].d).toFixed(1), x1 = X(s[k].d).toFixed(1), y0 = Y(s[k - 1].h).toFixed(1), y1 = Y(s[k].h).toFixed(1);
+    strips += `<path d="M${x0},${y0} L${x1},${y1} L${x1},${H - 6} L${x0},${H - 6} Z" fill="${c}" opacity=".32"/>`;
+    lines += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>`;
   }
-  const area = `M${X(0)},${H - 6} ` + s.map((q) => `L${X(q.d).toFixed(1)},${Y(q.h).toFixed(1)}`).join(" ") + ` L${X(L)},${H - 6} Z`;
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Elevation profile"><path d="${area}" fill="currentColor" opacity=".08"/>${lines}
-    <text x="3" y="10" font-size="9" fill="currentColor" opacity=".6">${Math.round(hmax)} m</text><text x="3" y="${H - 8}" font-size="9" fill="currentColor" opacity=".6">${Math.round(hmin)} m</text>
-    <line id="pf-cur" x1="0" y1="2" x2="0" y2="${H - 6}" stroke="currentColor" opacity=".5" stroke-dasharray="2 2" visibility="hidden"/></svg>
-    <div class="pf-read"><span id="pf-info">Elevation along the run</span><span>${fmtLen(L)} ${lenUnit(L)}</span></div>`;
+  const grid = [0.25, 0.5, 0.75].map((r) => `<line x1="2" x2="${W - 2}" y1="${(H - 6 - r * (H - 26)).toFixed(1)}" y2="${(H - 6 - r * (H - 26)).toFixed(1)}" stroke="currentColor" opacity=".12"/>`).join("");
+
+  let stats = "";
+  if (piste) {
+    const first = pts[0], last = pts[pts.length - 1];
+    const brg = (Math.atan2(last[0] - first[0], -(last[2] - first[2])) * 180 / Math.PI + 360) % 360;   // north is -z
+    const cell = (ic, v, u) => `<div><span class="ms">${ic}</span><b>${v}</b><small>${u}</small></div>`;
+    const amp = 4.5, dc = PISTE_RGB[f.difficulty] === "#1b1b1b" ? "#e8e8e8" : PISTE_RGB[f.difficulty];
+    const beat = `M0 8H46l3-${amp.toFixed(1)}l4 ${(amp * 2).toFixed(1)}l3-${(amp * 1.4).toFixed(1)}l2 ${(amp * 0.4).toFixed(1)}H120`;
+    const tags = [f.lit && `${ico("night", 1)} Floodlit`, f.snowmaking && `${ico("snow", 1)} Snowmaking`].filter(Boolean).map((t) => `<span class="pf-tag">${t}</span>`).join("");
+    // lifts whose top station is at the start of this run, or whose bottom station is at its end
+    const near = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]) < 160;
+    const lifts = D.features.filter((l) => l.kind === "lift" && (near(l.path[l.path.length - 1], first) || near(l.path[0], last))).slice(0, 5)
+      .map((l) => `<button class="pf-lift" data-id="${l.id}"><span class="ms">${LIFT_ICON[l.lift_type] || "chair_alt"}</span>${l.name}</button>`).join("");
+    stats = `<div class="pf-key"><span><i style="background:${PISTE_RGB.blue}"></i>Easy</span><span><i style="background:${PISTE_RGB.red}"></i>Medium</span><span><i style="background:${PISTE_RGB.black}"></i>Steep</span></div><div class="pf-stats">${cell("vertical_align_top", Math.round(hmax), "m top")}${cell("vertical_align_bottom", Math.round(hmin), "m bottom")}${cell("explore", COMPASS[Math.round(brg / 45) % 8], "faces")}</div>
+      <div class="pf-diff"><span>Difficulty</span><svg viewBox="0 0 120 16" aria-hidden="true"><path d="${beat}" fill="none" stroke="${dc}" stroke-width="1.6" stroke-linejoin="round"/></svg><b>${DIFF_NAME[f.difficulty]}</b></div>
+      ${tags ? `<div class="pf-tags">${tags}</div>` : ""}${lifts ? `<div class="pf-lifts"><span>Connecting lifts</span>${lifts}</div>` : ""}`;
+  }
+
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Elevation profile">${grid}${strips}${lines}
+    <text x="3" y="10" font-size="9" fill="currentColor" opacity=".7">${Math.round(hmax)} m</text><text x="3" y="${H - 8}" font-size="9" fill="currentColor" opacity=".7">${Math.round(hmin)} m</text>
+    <line id="pf-cur" x1="0" y1="2" x2="0" y2="${H - 6}" stroke="currentColor" opacity=".85" visibility="hidden"/>${SKI ? '<circle id="pf-pt" r="3.4" fill="#ffd23f" stroke="#fff" stroke-width="1.2" visibility="hidden"/>' : '<ellipse id="pf-pt" rx="4.6" ry="2" fill="#d8342a" stroke="#fff" stroke-width="1" visibility="hidden"/>'}</svg>
+    <div class="pf-bar"><button id="pf-play" class="ms" aria-label="Fly along the run" title="Fly along the run">play_arrow</button>${SKI ? "" : `<button id="pf-xray" class="ms${corridorOn ? " on" : ""}" aria-label="See through the trees" aria-pressed="${corridorOn}" title="See through the trees (x-ray)">search</button>`}<span id="pf-info">Fly along the run</span><span>${fmtLen(L)} ${lenUnit(L)}</span></div>${stats}`;
   box.hidden = false;
-  const svg = box.querySelector("svg"), cur = box.querySelector("#pf-cur"), info = box.querySelector("#pf-info");
-  const move = (e) => {
-    const r = svg.getBoundingClientRect(), d = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * L;
+
+  const svg = box.querySelector("svg"), cur = box.querySelector("#pf-cur"), pt = box.querySelector("#pf-pt"), info = box.querySelector("#pf-info"), play = box.querySelector("#pf-play");
+  const IDLE = "Fly along the run";
+  const show = (d) => {   // cursor + readout at d metres along the run; returns the sample
     let k = s.findIndex((q) => q.d >= d); if (k < 0) k = s.length - 1;
-    const q = s[k], p = pts[q.i], prev = s[Math.max(0, k - 1)], g = Math.abs(Math.atan2(q.h - prev.h, Math.max(q.d - prev.d, 1))) * 180 / Math.PI;
-    cur.setAttribute("x1", X(q.d)); cur.setAttribute("x2", X(q.d)); cur.setAttribute("visibility", "visible");
-    info.textContent = `${Math.round(q.h)} m · ${fmtLen(q.d)} ${lenUnit(q.d)} · ${g.toFixed(0)}°`;
+    const q = s[k];
+    cur.setAttribute("x1", X(d)); cur.setAttribute("x2", X(d)); cur.setAttribute("visibility", "visible");
+    pt.setAttribute("cx", X(d)); pt.setAttribute("cy", Y(q.h)); pt.setAttribute("visibility", "visible");
+    info.textContent = `${fmtLen(d)} ${lenUnit(d)} | ${Math.round(q.h)} m`;
+    return q;
+  };
+  const hide = () => { cur.setAttribute("visibility", "hidden"); pt.setAttribute("visibility", "hidden"); info.textContent = IDLE; profileDot.visible = false; invalidate(4); };
+  const api = { f, playing: false, last: 0,
+    setIcon(on) { api.playing = on; play.textContent = on ? "pause" : "play_arrow"; },
+    tick(fr) {   // fr: 0..1 progress of the fly camera, or -1 when it is not flying this run
+      if (fr < 0) { if (api.playing) api.setIcon(false); return; }
+      if (!api.playing) api.setIcon(true);
+      api.last = fr; show(fr * L);
+      profileDot.visible = false;   // the ball is the marker while flying
+    } };
+  profileApi = api;
+  const frac = (e) => { const r = svg.getBoundingClientRect(); return Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1); };
+  const move = (e) => {
+    const fl = fly && fly.f === f ? fly : null;
+    if (fl) { if (e.buttons || e.type === "pointerdown") fl.s = frac(e) * fl.L; return; }   // while flying, dragging the chart seeks
+    const q = show(frac(e) * L), p = pts[q.i];
     profileDot.scale.set(...pinScale(markerTex), 1); profileDot.position.set(p[0], p[1] + 0.6, p[2]); profileDot.visible = true; invalidate(4);
   };
-  const leave = () => { cur.setAttribute("visibility", "hidden"); info.textContent = "Elevation along the run"; profileDot.visible = false; invalidate(4); };
-  svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move); svg.addEventListener("pointerleave", leave);
+  svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move);
+  svg.addEventListener("pointerleave", () => { if (!(fly && fly.f === f)) hide(); });
+  play.addEventListener("click", () => {
+    if (fly && fly.f === f) { fly = null; api.setIcon(false); return; }   // pause: the camera stays where it is
+    startFly(f, () => { api.setIcon(false); hide(); goTo(viewFor(f, "overview"), 1.4); }, api.last > 0.98 ? 0 : api.last);
+    api.setIcon(true);
+  });
 }
+$("profile").addEventListener("click", (e) => {
+  const b = e.target.closest(".pf-lift"); if (!b) return;
+  select(D.features.find((x) => x.id === b.dataset.id), "overview");
+});
 
 function select(f, mode = "overview", onDone) {
   current = f; viewMode = mode;
-  setHighlight(f); setSelLabels(f); renderPanel(f);
-  if (phone()) openTab(null);   // fold the list away: the sheet shrinks and the run gets the screen
+  setHighlight(f); setSelLabels(f); renderPanel(f); setCorridor(f);
+  if (phone() || SKI) { if (tabNow) prevTab = tabNow; openTab(null); }   // fold the list away: the run gets the panel, the back button returns to the list
   history.replaceState(null, "", SKI ? `?c=${KEY}#${f.id}` : `?c=${KEY}&layout=${LAYOUT}&pin=${PIN}&hole=${f.number}`);
   if (mode === "fly") startFly(f, onDone);
   else goTo(viewFor(f, mode));
@@ -1340,8 +1755,9 @@ function select(f, mode = "overview", onDone) {
 const tourList = SKI ? listed.filter((f) => f.kind === "piste") : listed;
 function stopTour() {}
 $("whole").addEventListener("click", () => { if (SKI) deselect(); else goTo(wholeView(), 2); });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && SKI && current && $("cam").hidden) deselect(); });
-renderer.domElement.addEventListener("pointerdown", () => { if (fly || anim) { fly = null; anim = null; stopTour(); } });
+$("p-back").addEventListener("click", () => deselect());
+addEventListener("keydown", (e) => { if (e.key === "Escape" && SKI && current && $("cam").hidden && $("stpop").hidden) deselect(); });
+renderer.domElement.addEventListener("pointerdown", () => { if (fly || anim) { fly = null; anim = null; stopTour(); profileApi?.tick(-1); } });
 
 $("panel-toggle").addEventListener("click", () => { $("panel").classList.toggle("collapsed"); updateViewOffset(); });
 
@@ -1358,9 +1774,17 @@ const skyMat = new THREE.ShaderMaterial({
   vertexShader: "varying vec3 vDir; void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w; }",
   fragmentShader: `uniform vec3 topDay, horDay, topNight, horNight, sunDir; uniform float night; varying vec3 vDir;
     float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vn2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), f.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), f.x), f.y); }
     void main() {
       vec3 d = normalize(vDir); float t = pow(clamp(d.y, 0.0, 1.0), 0.55);
       vec3 col = mix(mix(horDay, topDay, t), mix(horNight, topNight, t), night);
+      if (d.y > 0.015) {   // static cloud layer (no animation, so the page still renders only when something changes)
+        vec2 q = d.xz / (d.y + 0.22) * 1.15;
+        float cl = vn2(q * 0.9 + 3.1) * 0.55 + vn2(q * 2.1 + 7.7) * 0.30 + vn2(q * 4.6 + 1.3) * 0.15;
+        cl = smoothstep(0.52, 0.80, cl) * smoothstep(0.015, 0.20, d.y);
+        col = mix(col, mix(vec3(1.0, 1.0, 1.0), horDay, 0.25), cl * 0.6 * (1.0 - night));
+      }
       float s = max(dot(d, normalize(sunDir)), 0.0);
       col += mix(vec3(1.0, 0.93, 0.78), vec3(0.75, 0.82, 1.0), night) * (pow(s, 700.0) * 1.3 + pow(s, 22.0) * 0.20 * (1.0 - 0.6 * night) + pow(s, 4.0) * 0.05);
       if (night > 0.01 && d.y > 0.03) col += vec3(step(0.9965, hash(floor(d * 320.0)))) * night * smoothstep(0.03, 0.3, d.y) * 0.9;
@@ -1456,6 +1880,7 @@ function restylePins() {
 }
 function showFeatureStatus(f) {
   const el = $("p-status");
+  if (f.kind === "hole" && f.notes) return;   // OB / mando notes from the course
   if (!STATUS || !statusVisible || !f.status) { el.hidden = true; return; }
   const label = { open: "Open", preparing: "Being prepared", closed: "Closed" }[f.status] || f.status;
   el.innerHTML = `<span class="st-dot st-${f.status}"></span>${label}${STATUS.demo ? " · demo data" : STATUS.updated ? " · updated " + STATUS.updated : ""}`;
@@ -1469,7 +1894,13 @@ function refreshStatusUI() {
   $("st-lifts").innerHTML = `Lifts <b>${lifts.open}</b>/${lifts.n} open`;
   $("st-runs").innerHTML = `Runs <b>${runs.open}</b>/${runs.n} open${runs.preparing ? ` · ${runs.preparing} being prepared` : ""}`;
   $("st-badge").hidden = !STATUS.demo;
-  $("status-strip").hidden = !on;
+  $("status-strip").hidden = !on; $("stbtn").hidden = !on;
+  $("stbtn-t").textContent = `Lifts ${lifts.open}/${lifts.n} open`;
+  const lbl = { open: "Open", preparing: "Being prepared", closed: "Closed" };
+  const li = (name, sub, f) => `<li><span class="st-dot st-${f.status}"></span><b>${name}</b><span>${sub}</span><small>${lbl[f.status] || ""}</small></li>`;
+  const sec = (h, list) => list.length ? `<h4>${h}</h4><ul>${list.join("")}</ul>` : "";
+  $("stlist").innerHTML = sec("Lifts", D.features.filter((f) => f.kind === "lift" && f.status).map((f) => li(f.name, `${f.from || ""} → ${f.to || ""}`, f)))
+    + sec("Runs", D.features.filter((f) => f.kind === "piste" && f.listed && f.ref && f.status).map((f) => li(f.ref, f.name, f)));
   for (const r of ribbonRanges) r.bucket.stateAttr.array.fill(stateOf(r.f), r.start, r.start + r.count);
   for (const b of new Set(ribbonRanges.map((r) => r.bucket))) b.stateAttr.needsUpdate = true;
   restylePins();
@@ -1480,6 +1911,12 @@ function refreshStatusUI() {
   if (current) showFeatureStatus(current);
   invalidate(4);
 }
+
+const stpop = $("stpop"), closeSt = () => { stpop.hidden = true; };
+$("stbtn").addEventListener("click", () => { stpop.hidden = false; });
+$("stpop-x").addEventListener("click", closeSt);
+stpop.addEventListener("click", (e) => { if (e.target === stpop) closeSt(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !stpop.hidden) closeSt(); });
 
 // ---------- weather card (Open-Meteo, model data) ----------
 {
@@ -1541,7 +1978,18 @@ if (D.webcams?.length) {
 
 // ---------- map extras: layer switches, legend, rescue, town buildings ----------
 if (SKI) {
-  const LAYERS = [...(STATUS ? [["status", "Open / closed"]] : []), ["pistes", "Piste numbers"], ["services", "Services"], ["pois", "Parking & bus"], ["snow", "Snowmaking"], ["lifts", "Lifts"], ["slope", "Slope angle"]];
+  { // the map switches live behind a gear, outside the side panel
+    const btn = document.createElement("button"); btn.className = "ibtn ms"; btn.id = "gearbtn"; btn.title = "Map settings";
+    btn.setAttribute("aria-label", "Map settings"); btn.setAttribute("aria-expanded", "false"); btn.textContent = "settings";
+    const pop = document.createElement("div"); pop.id = "gearpop"; pop.hidden = true; pop.innerHTML = "<h4>Map settings</h4>"; pop.append($("layer-checks"));
+    $("topright").append(btn); document.body.append(pop);
+    const shut = () => { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+    btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", String(!pop.hidden)); if (!pop.hidden) $("wx").open = false; });
+    addEventListener("click", (e) => { if (!pop.hidden && !pop.contains(e.target)) shut(); });
+    $("wx").addEventListener("toggle", () => { if ($("wx").open) shut(); });
+    addEventListener("keydown", (e) => { if (e.key === "Escape") shut(); });
+  }
+  const LAYERS = [...(STATUS ? [["status", "Open / closed"]] : []), ["pistes", "Piste numbers"], ["services", "Services"], ["pois", "Parking & bus"], ["snow", "Snowmaking"], ["lifts", "Lifts"]];
   $("layer-checks").innerHTML = LAYERS.map(([k, n]) =>
     `<label class="tg"><span>${n}</span><input type="checkbox" role="switch" data-g="${k}" ${groupOn[k] ? "checked" : ""}></label>`).join("");
   $("layer-checks").addEventListener("change", (e) => {
@@ -1556,26 +2004,32 @@ if (SKI) {
 
   const used = new Set([...(D.hubs || []).flatMap((h) => h.icons || []), ...(D.pois || []).map((p) => p.icon),
     ...(D.attractions || []).map((a) => a.icon), "snow", ...(D.webcams?.length ? ["webcam"] : [])]);
-  const row = (sw, txt) => `<div class="row">${sw}<span>${txt}</span></div>`;
-  $("legend").innerHTML = "<h4>Trasy narciarskie · Ski runs</h4>"
+  // the legend lives in the Layers tab: every entry is a button that shows (or highlights) just that thing on the map
+  const row = (sw, txt, tag, run) => tag ? `<button class="lg-row" data-tag="${tag}">${sw}<span>${txt}</span></button>` : `<div class="lg-row static">${sw}<span>${txt}</span></div>`;
+  const RUNS = { "run:blue": (f) => f.difficulty === "blue", "run:red": (f) => f.difficulty === "red", "run:black": (f) => f.difficulty === "black", "run:lit": (f) => !!f.lit };
+  $("layer-legend").innerHTML = "<h4>Legend · tap to show on the map</h4><h5>Trasy narciarskie · Ski runs</h5>"
     + [["blue", "Łatwa · Easy"], ["red", "Średnia · Intermediate"], ["black", "Trudna · Difficult"]]
-      .map(([c, t]) => row(`<span class="sw" style="background:${PISTE_RGB[c]}"></span>`, t)).join("")
-    + row('<span class="sw" style="background:#fff;border:3px solid #f5c518;height:11px;box-sizing:border-box"></span>', "Jazda wieczorna · Evening skiing (yellow edge)")
-    + "<h4>Nachylenie · Slope angle</h4>"
-    + [["#4dc266", "< 8° · flat / gentle"], ["#3375e0", "8–14° · easy"], ["#e03330", "15–22° · intermediate"], ["#29143a", "> 25° · steep"]]
-      .map(([c, t]) => row(`<span class="sw" style="background:${c}"></span>`, t)).join("")
-    + (STATUS ? "<h4>Status</h4>" + [["open", "Otwarte · Open"], ["preparing", "W przygotowaniu · Being prepared"], ["closed", "Zamknięte · Closed"]]
+      .map(([c, t]) => row(`<span class="sw" style="background:${PISTE_RGB[c]}"></span>`, t, "run:" + c)).join("")
+    + row('<span class="sw" style="background:#fff;border:3px solid #f5c518;height:11px;box-sizing:border-box"></span>', "Jazda wieczorna · Evening skiing (yellow edge)", "run:lit")
+    + (STATUS ? "<h5>Status</h5>" + [["open", "Otwarte · Open"], ["preparing", "W przygotowaniu · Being prepared"], ["closed", "Zamknięte · Closed"]]
         .map(([k, t]) => row(`<span class="st-dot st-${k}"></span>`, t)).join("") : "")
-    + "<h4>Wyciągi · Lifts</h4>"
-    + row('<span class="ico" style="background:#111">gondola_lift</span>', "Kolej gondolowa · Gondola lift")
-    + row('<span class="ico" style="background:#111">chair_alt</span>', "Kolej krzesełkowa · Chairlift (seats in superscript)")
-    + row('<span class="ico" style="background:#111">north_east</span>', "Wyciąg narciarski · Surface lift")
-    + "<h4>Szlaki · Trails</h4>"
+    + "<h5>Wyciągi · Lifts</h5>"
+    + row('<span class="ico" style="background:#111">gondola_lift</span>', "Kolej gondolowa · Gondola lift", "lift:gondola")
+    + row('<span class="ico" style="background:#111">chair_alt</span>', "Kolej krzesełkowa · Chairlift", "lift:chair")
+    + row('<span class="ico" style="background:#111">north_east</span>', "Wyciąg narciarski · Surface lift", "lift:surface")
+    + "<h5>Szlaki · Trails</h5>"
     + row('<span class="sw" style="background:repeating-linear-gradient(90deg,#e8792b 0 6px,transparent 6px 10px)"></span>', "Szlak skiturowy · Ski touring trail")
-    + row('<span class="sw" style="background:repeating-linear-gradient(90deg,#2f9a45 0 6px,transparent 6px 10px)"></span>', "Szlak turystyczny · Hiking trail (in its marked colour)")
-    + "<h4>Usługi · Services</h4>"
-    + Object.keys(ICONS).filter((k) => used.has(k)).map((k) => row(ico(k), ICONS[k][2])).join("");
-  $("legend-btn").addEventListener("click", () => $("legend").classList.toggle("open"));
+    + row('<span class="sw" style="background:repeating-linear-gradient(90deg,#2f9a45 0 6px,transparent 6px 10px)"></span>', "Szlak turystyczny · Hiking trail")
+    + "<h5>Usługi · Services</h5>"
+    + Object.keys(ICONS).filter((k) => used.has(k)).map((k) => row(ico(k), ICONS[k][2], "icon:" + k)).join("");
+  $("layer-legend").addEventListener("click", (e) => {
+    const b = e.target.closest(".lg-row[data-tag]"); if (!b) return;
+    const tag = b.dataset.tag, same = legendSel?.tag === tag;
+    legendSel = same ? null : { tag, run: RUNS[tag] };
+    $("layer-legend").querySelectorAll(".lg-row").forEach((x) => x.classList.toggle("on", !same && x === b));
+    if (nightGroup) nightGroup.visible = nightTarget > 0.5 || legendSel?.tag === "run:lit";
+    labels.forEach((l) => { l.w = 0; }); setMute(); invalidate(6);
+  });
 
   if (D.info?.rescue_phone) {
     const r = $("rescue");
@@ -1601,8 +2055,6 @@ if (SKI) {
     town.castShadow = true; town.receiveShadow = true;
     scene.add(town);
   }
-} else {
-  $("legend-btn").hidden = true;
 }
 
 // ---------- loop ----------
@@ -1616,7 +2068,7 @@ for (const ev of ["input", "change", "click", "keydown", "pointerup", "wheel", "
 
 // Adaptive quality: if frames keep coming in slow, lower the render resolution (then the shadows) by itself.
 let quality = 0, frames = 0, slow = 0, lastFrame = 0;
-const Q_DPR = [Math.min(devicePixelRatio, 2), Math.min(devicePixelRatio, 1.25), 1];
+const Q_DPR = [Math.min(devicePixelRatio, SMALL ? 1.5 : 2), Math.min(devicePixelRatio, 1.25), 1];
 function setQuality(q) {
   quality = q;
   renderer.setPixelRatio(Q_DPR[q]); renderer.setSize(innerWidth, innerHeight);
@@ -1629,6 +2081,7 @@ if (params.get("q")) setQuality(Math.min(2, +params.get("q") || 0));
 function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
+  CLEAR_U.value = fly ? 0 : SKI ? 70 : 24;   // flying: no tree collapses next to the camera
   if (Math.abs(nightT - nightTarget) > 0.002) {   // day <-> night eases over about a second
     nightT += (nightTarget - nightT) * Math.min(1, dt * 3.5);
     if (Math.abs(nightT - nightTarget) < 0.004) nightT = nightTarget;
@@ -1647,15 +2100,17 @@ function tick() {
     } else camera.position.lerpVectors(anim.p0, anim.p1, k);
     if (anim.t >= 1) anim = null;
   } else if (fly) {
-    const speed = (fly.lift ? 6 : SKI ? 75 : 9) * speedMul; // m/s
+    const speed = (fly.lift ? 6 : SKI ? fly.L / 6 : 16) * speedMul;   // m/s; a ski run always takes about 6 s, whatever its length
     fly.s += speed * dt;
-    const v = flyPose(fly), k = 1 - Math.exp(-dt * 4);
+    const v = flyPose(fly), k = 1 - Math.exp(-dt * (SKI ? 8 : 4));
     camera.position.lerp(v.pos, k);
     controls.target.lerp(v.target, k);
     if (fly.s >= fly.L) { const done = fly.onDone; fly = null; done && done(); }
   }
+  profileApi?.tick(fly && fly.f === profileApi.f ? fly.s / fly.L : -1);
+  updateBall(); updateDisc(dt);
   // keep the camera above ground
-  const gy = heightAt(camera.position.x, camera.position.z) + (SKI ? 8 : 1.5);
+  const gy = heightAt(camera.position.x, camera.position.z) + (fly ? 2.5 : SKI ? 8 : 1.5);
   if (camera.position.y < gy) camera.position.y = gy;
   controls.update();
   camera.updateMatrixWorld();   // labels are projected with this matrix: without it they lag one frame behind the scene
@@ -1682,6 +2137,11 @@ function tick() {
 // debugging / capture handle: snap("p0","start") or snap("p0","fly",0.4) jumps without animation
 window.__ce = {
   camera, controls, viewFor, wholeView, V, heightAt, D, labels, terrain, occluded, THREE, T, X0, Z0, renderer, scene,
+  flyAt(id, frac) {   // jump straight into the fly-along at frac of the run (debug / capture)
+    const f = D.features.find((x) => x.id === id); select(f, "overview"); anim = null;
+    const c = pathCurve(f); fly = { f, curve: c, L: c.getLength(), s: frac * c.getLength(), onDone: null, lift: false };
+    const v = flyPose(fly); camera.position.copy(v.pos); controls.target.copy(v.target); controls.update(); updateBall(); camera.updateMatrixWorld(); renderer.render(scene, camera);
+  },
   snap(id, mode, t = 0) {
     const f = D.features.find((x) => x.id === id);
     select(f, mode === "fly" ? "overview" : mode); anim = null; fly = null;
@@ -1693,6 +2153,313 @@ window.__ce = {
     camera.updateMatrixWorld(); renderer.render(scene, camera); updateLabels();
   },
 };
+// ---------- disc golf: see-through trees and the aerial photo curtain ----------
+function simplifyLine(pts, tol) {   // Douglas-Peucker on [x, z]
+  if (pts.length < 3) return pts;
+  const [a, b] = [pts[0], pts[pts.length - 1]], dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1;
+  let k = 0, dm = 0;
+  for (let i = 1; i < pts.length - 1; i++) { const d = Math.abs((pts[i][0] - a[0]) * dz - (pts[i][1] - a[1]) * dx) / L; if (d > dm) { dm = d; k = i; } }
+  if (dm <= tol) return [a, b];
+  return [...simplifyLine(pts.slice(0, k + 1), tol).slice(0, -1), ...simplifyLine(pts.slice(k), tol)];
+}
+function applyTreeShadows() { /* shadows now follow the x-ray and the canopy cut inside the tree shadow shader */ }
+function setCorridor(f) {
+  if (SKI) return;
+  let n = 0;
+  TU.uXray.value = corridorOn ? 1 : 0;
+  if (f && f.kind === "hole") {
+    let pts = f.path.map((p) => [p[0], p[2]]);
+    for (let tol = 1.5; tol < 60; tol *= 1.6) { const q = simplifyLine(pts, tol); if (q.length <= 9) { pts = q; break; } }
+    n = Math.min(pts.length - 1, 8);
+    for (let i = 0; i < n; i++) TU.uSeg.value[i].set(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+  }
+  TU.uSegN.value = n;
+  applyTreeShadows(); invalidate(4);
+}
+if (!SKI) {
+  const photo = !!D.ortho;
+  $("layer-checks").innerHTML = "";
+  if (photo) {
+    document.body.insertAdjacentHTML("beforeend", '<div id="curtain-line"></div><div id="curtain"><button aria-label="Drag to reveal the aerial photo" class="ms">swap_horiz</button></div>');
+    const cur = $("curtain");
+    const setCurtain = (v) => {
+      v = Math.min(Math.max(v, 24 / innerWidth), 1); ORTHO.uCurtain.value = v;
+      cur.style.left = $("curtain-line").style.left = `${v * 100}%`; invalidate(4);
+    };
+    cur.querySelector("button").addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const move = (ev) => setCurtain(ev.clientX / innerWidth), up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
+      addEventListener("pointermove", move); addEventListener("pointerup", up);
+    });
+    setCurtain(params.get("photo") ? +params.get("photo") : 0.035);
+  }
+  setCorridor(null);
+}
+
+// ================= disc golf extras: hole card, weather + wind, where-am-I, lost discs, flyover, seasons, offline =================
+if (!SKI) {
+const DG = true;
+const GEO = T.geo;
+let WX = null, ME = null, cardOpen = false;
+const holeCard = document.createElement("aside");
+holeCard.id = "holecard"; holeCard.hidden = true; document.body.appendChild(holeCard);
+const toastEl = document.createElement("div");
+toastEl.id = "toast"; toastEl.hidden = true; document.body.appendChild(toastEl);
+let toastT = 0;
+function toast(msg, ms = 3500) { toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, ms); }
+
+const deg = (r) => r * 180 / Math.PI;
+const bearing = (a, b) => (deg(Math.atan2(b.x - a.x, -(b.z - a.z))) + 360) % 360;   // compass bearing, north = -z
+const compass = (d) => ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(d / 45) % 8];
+const inPoly = (x, z, poly) => {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c;
+  }
+  return c;
+};
+const u1 = (m) => Math.round(IMPERIAL ? m * 3.28084 : m);
+const uName = IMPERIAL ? "ft" : "m";
+const spName = IMPERIAL ? "mph" : "km/h";
+
+renderHoleCard = function (f) {
+  if (!f) {   // no hole picked: just the booking link
+    holeCard.className = "compact";
+    holeCard.innerHTML = D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : "";
+    holeCard.hidden = !D.links?.tee_times; return;
+  }
+  if (!DG || f.kind !== "hole") { holeCard.hidden = true; return; }
+  holeCard.className = "";
+  const c = pathCurve(f), L = c.getLength(), at = (m) => c.getPointAt(Math.min(1, m / L));
+  const a = at(0), b = at(L), rows = [];
+  const turn = ((bearing(at(L * 0.7), b) - bearing(a, at(L * 0.3)) + 540) % 360) - 180;
+  rows.push(Math.abs(turn) < 12 ? "Straight line" : `Bends ${turn > 0 ? "right" : "left"} about ${Math.round(Math.abs(turn))}°`);
+  let carry = 0, hi = -1e9;
+  for (let m = 0; m <= L; m += 1) {
+    const q = at(m);
+    if (D.water.some((w) => inPoly(q.x, q.z, w))) carry++;
+    if (m % 3 === 0) hi = Math.max(hi, q.y);
+  }
+  if (carry >= 3) rows.push(`Water carry about ${u1(carry)} ${uName}`);
+  if (hi - Math.max(a.y, b.y) > 3) rows.push(`Crest ${u1(hi - a.y)} ${uName} above the tee mid-hole`);
+  if (WX) {
+    const tb = bearing(a, b), rel = (WX.dir - tb) * Math.PI / 180;
+    const head = WX.speed * Math.cos(rel), cross = WX.speed * Math.sin(rel);
+    rows.push(`Wind: ${Math.round(Math.abs(head))} ${spName} ${head >= 0 ? "headwind" : "tailwind"}${Math.abs(cross) >= 2 ? `, ${Math.round(Math.abs(cross))} crosswind from the ${cross > 0 ? "right" : "left"}` : ""}`);
+  }
+  if (ME) rows.push(`You: ${u1(Math.hypot(ME.x - b.x, ME.z - b.z))} ${uName} to the basket`);
+  const note = (f.notes || "").replace(/^DGPT 2020: /, "");
+  const dz = b.y - a.y;
+  holeCard.innerHTML = `<div class="hc-h"><b>Hole ${f.number}</b><span>Par ${f.par ?? "–"}${SMALL ? '<i class="ms hc-chev">expand_more</i>' : ""}</span></div>
+    <div class="hc-s"><b>${u1(f.length_m)}</b> ${uName} · ${dz >= 0 ? "▲ uphill" : "▼ downhill"} ${Math.abs(u1(dz))} ${uName}</div>
+    <ul>${rows.map((r) => `<li>${r}</li>`).join("")}</ul>${note ? `<p>${note}</p>` : ""}
+    ${D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : ""}`;
+  holeCard.classList.toggle("mini", SMALL && !cardOpen);
+  holeCard.hidden = false;
+};
+holeCard.addEventListener("click", (e) => { if (!SMALL || e.target.closest("a")) return; cardOpen = !cardOpen; if (current) renderHoleCard(current); });
+
+discIdle = function () {
+  current = null;
+  if (highlight) { scene.remove(highlight); highlight.traverse((o) => o.geometry && o.geometry.dispose()); highlight = null; }
+  for (const l of selLabels) { l.el.remove(); l.line?.remove(); l.dot?.remove(); labels.splice(labels.indexOf(l), 1); }
+  selLabels = [];
+  TU.uSegN.value = 0;
+  $("p-title").textContent = D.name; $("p-sub").textContent = "Pick a hole for its line, rules and a flyover";
+  $("p-stats").innerHTML = ""; $("p-status").hidden = true; $("profile").hidden = true;
+  document.querySelectorAll(".chip").forEach((b) => b.classList.remove("on"));
+  renderHoleCard(null);
+  history.replaceState(null, "", `?c=${KEY}&layout=${LAYOUT}`);
+  invalidate(4);
+};
+$("whole").addEventListener("click", () => discIdle());
+document.addEventListener("click", (e) => {   // the x-ray button in the profile bar
+  const b = e.target.closest("#pf-xray"); if (!b) return;
+  corridorOn = !corridorOn; b.classList.toggle("on", corridorOn); b.setAttribute("aria-pressed", String(corridorOn));
+  setCorridor(current);
+});
+
+// ---------- weather for the whole course (Open-Meteo, free, no key) ----------
+async function loadWeather() {
+  const card = $("wx"), body = card.querySelector(".wx-body"), ck = `wx2:${KEY}`;
+  const ICON = (code, day) => code === 0 ? (day ? "sunny" : "bedtime") : code <= 2 ? (day ? "partly_cloudy_day" : "partly_cloudy_night") : code === 3 ? "cloud"
+    : code <= 48 ? "foggy" : code <= 67 ? "rainy" : code <= 77 ? "weather_snowy" : code <= 82 ? "rainy" : code <= 86 ? "weather_snowy" : "thunderstorm";
+  const url = "https://api.open-meteo.com/v1/forecast?" + new URLSearchParams({
+    latitude: GEO.lat0, longitude: GEO.lon0, forecast_days: 3, timezone: "auto",
+    current: "temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code,is_day,precipitation",
+    daily: "temperature_2m_max,temperature_2m_min",
+    ...(IMPERIAL ? { temperature_unit: "fahrenheit", wind_speed_unit: "mph", precipitation_unit: "inch" } : {}) });
+  let j = null, stale = null;
+  try { const c = JSON.parse(localStorage.getItem(ck) || "null"); if (c) { stale = c.j; if (Date.now() - c.t < 15 * 60e3) j = c.j; } } catch (e) { /* no storage */ }
+  if (!j) {
+    try {
+      const r = await fetch(url); if (!r.ok) throw new Error(r.status);
+      j = await r.json();
+      try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), j })); } catch (e) { /* ignore */ }
+    } catch (e) { j = stale; if (!j) { setTimeout(loadWeather, 60e3); return; } }   // rate limit or offline: show the last copy, or try again in a minute
+  }
+  const c = j.current, d = j.daily;
+  WX = { speed: c.wind_speed_10m, dir: c.wind_direction_10m, gust: c.wind_gusts_10m };
+  $("wx-ico").textContent = ICON(c.weather_code, c.is_day);
+  $("wx-now").textContent = `${Math.round(c.temperature_2m)}° · wind ${Math.round(c.wind_speed_10m)} ${spName}`;
+  const days = d.time.slice(1).map((t, i) => `${new Date(t + "T12:00").toLocaleDateString("en", { weekday: "short" })} ${Math.round(d.temperature_2m_max[i + 1])}°/${Math.round(d.temperature_2m_min[i + 1])}°`).join(" · ");
+  body.innerHTML = `<div class="wx-head"><span>Now at the course</span><span>model data</span></div>
+    <div class="wx-row"><span class="ms" style="transform:rotate(${c.wind_direction_10m + 180}deg)" title="Direction the wind blows toward">navigation</span><b>${Math.round(c.wind_speed_10m)} ${spName}</b>
+    <span>from the ${compass(c.wind_direction_10m)}<br><small style="margin:0">gusts ${Math.round(c.wind_gusts_10m)}</small></span><small>${Math.round(c.temperature_2m)}°<br>rain ${c.precipitation}</small></div>
+    <div class="wx-foot"><span>${days}</span></div>
+    <div class="wx-foot"><span>The hole card shows head / crosswind</span><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a></div>`;
+  card.hidden = false;
+  if (current) renderHoleCard(current);
+}
+if (DG) loadWeather();
+$("wx").addEventListener("toggle", () => { holeCard.style.visibility = $("wx").open ? "hidden" : ""; });
+
+// ---------- where am I (browser GPS; ?fakegps=lon,lat[,accuracy] to test away from the course) ----------
+$("brand").insertAdjacentHTML("beforeend", '<button class="ibtn ms" id="locbtn" title="Where am I" aria-label="Show my position" aria-pressed="false">my_location</button>'
+  + '<button class="pillbtn" id="lostbtn" title="Mark where a disc was lost" aria-label="Lost a disc"><span class="ms">pin_drop</span>Lost a disc</button>');
+const meTex = canvasTex(26, 26, (g) => { g.fillStyle = "#fff"; g.beginPath(); g.arc(13, 13, 12, 0, 7); g.fill(); g.fillStyle = "#2f7bff"; g.beginPath(); g.arc(13, 13, 8.5, 0, 7); g.fill(); });
+const meDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: meTex.tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+meDot.renderOrder = 10; meDot.visible = false; scene.add(meDot);
+const meAcc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ color: 0x2f7bff, transparent: true, opacity: 0.16, depthTest: false, depthWrite: false }));
+meAcc.rotation.x = -Math.PI / 2; meAcc.renderOrder = 9; meAcc.visible = false; scene.add(meAcc);
+let geoWatch = null, firstFix = true, wakeLock = null;
+function setMe(lon, lat, acc) {
+  const p = window.CE.fromLonLat(lon, lat);
+  if (p.x < X0 - 40 || p.x > X0 + T.width + 40 || p.z < Z0 - 40 || p.z > Z0 + T.depth + 40) {
+    const km = Math.hypot((lon - GEO.lon0) * GEO.kx, (lat - GEO.lat0) * GEO.kz) / 1000;
+    toast(`You are ${km.toFixed(km < 10 ? 1 : 0)} km from the course`); stopLocate(); return;
+  }
+  ME = { x: p.x, z: p.z, lon, lat, acc };
+  meDot.position.set(p.x, p.y + 1.2, p.z); meDot.scale.set(...pinScale(meTex), 1); meDot.visible = true;
+  meAcc.position.set(p.x, p.y + 0.6, p.z); meAcc.scale.setScalar(Math.min(Math.max(acc, 3), 60)); meAcc.visible = true;
+  if (firstFix) {   // slide the view over to you, keeping the angle
+    firstFix = false;
+    const d = new THREE.Vector3(p.x - controls.target.x, p.y - controls.target.y, p.z - controls.target.z);
+    goTo({ pos: camera.position.clone().add(d), target: controls.target.clone().add(d) }, 1.1);
+  }
+  invalidate(4);
+  if (current) renderHoleCard(current);
+}
+function stopLocate() {
+  if (geoWatch != null) navigator.geolocation.clearWatch(geoWatch);
+  geoWatch = null; ME = null; try { wakeLock?.release(); } catch (e) { /* ignore */ } wakeLock = null; meDot.visible = meAcc.visible = false; $("locbtn").setAttribute("aria-pressed", "false"); $("locbtn").classList.remove("on");
+  invalidate(4); if (current) renderHoleCard(current);
+}
+$("locbtn").addEventListener("click", () => {
+  if (ME || geoWatch != null) { stopLocate(); return; }
+  const fake = params.get("fakegps");
+  $("locbtn").setAttribute("aria-pressed", "true"); $("locbtn").classList.add("on"); firstFix = true; geoWatch = -1;
+  navigator.wakeLock?.request("screen").then((l) => { wakeLock = l; }).catch(() => {});   // on the course the screen should not go dark
+  if (fake) { const [lo, la, ac] = fake.split(",").map(Number); setMe(lo, la, ac || 5); return; }
+  if (!navigator.geolocation) { toast("This browser has no location access"); stopLocate(); return; }
+  geoWatch = navigator.geolocation.watchPosition((pos) => setMe(pos.coords.longitude, pos.coords.latitude, pos.coords.accuracy),
+    (err) => { toast(err.code === 1 ? "Location is blocked for this site" : "No GPS fix yet"); stopLocate(); },
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+});
+
+// ---------- lost discs: kept on this device for now (a shared map needs a small server later) ----------
+const LK = `lost:${KEY}`;
+let lost = [], lostLabels = [], lostSprites = [], picking = false;
+try { lost = JSON.parse(localStorage.getItem(LK) || "[]"); } catch (e) { /* no storage */ }
+const lostTex = canvasTex(26, 34, (g) => {
+  g.strokeStyle = "rgba(20,32,43,.8)"; g.lineWidth = 2; g.beginPath(); g.moveTo(13, 20); g.lineTo(13, 31); g.stroke();
+  g.fillStyle = "#c62121"; g.strokeStyle = "#fff"; g.lineWidth = 2.5; g.beginPath(); g.arc(13, 12, 9, 0, 7); g.fill(); g.stroke();
+  g.fillStyle = "#fff"; g.beginPath(); g.ellipse(13, 12, 5, 2.4, 0, 0, 7); g.fill();
+});
+groupOn.lost = true;
+function drawLost() {
+  for (const l of lostLabels) { l.el.remove(); l.line?.remove(); l.dot?.remove(); labels.splice(labels.indexOf(l), 1); }
+  for (const sp of lostSprites) scene.remove(sp);
+  lostLabels = []; lostSprites = [];
+  for (const it of lost) {
+    const p = window.CE.fromLonLat(it.lon, it.lat);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: lostTex.tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+    sp.center.set(0.5, 0.05); sp.scale.set(...pinScale(lostTex), 1); sp.position.set(p.x, p.y + 0.5, p.z); sp.renderOrder = 9; scene.add(sp); lostSprites.push(sp);
+    const l = addLabel(it.note || "Lost disc", new THREE.Vector3(p.x, p.y + 4, p.z), "badge", null, 55, "lost"); l.el.style.background = "#c62121"; lostLabels.push(l);
+  }
+  const box = $("lost-list");
+  if (box) {
+    box.innerHTML = lost.length ? lost.map((it) => `<div class="lost-row"><span>${it.note || "Lost disc"}<small>${new Date(it.t).toLocaleDateString("en")}</small></span>
+      <button data-go="${it.id}" class="ms" title="Show on map">my_location</button><button data-del="${it.id}" class="ms" title="Delete">delete</button></div>`).join("")
+      + '<button id="lost-copy" class="linkbtn">Copy as JSON</button>' : '<small>None yet. Tap the pin button to add one.</small>';
+  }
+  invalidate(4);
+}
+function addLost(lon, lat) {
+  const note = prompt("Which disc, or what to remember? (optional)", "");
+  if (note === null) return;
+  lost.push({ id: Date.now(), lon, lat, note: note.slice(0, 80), t: new Date().toISOString() });
+  try { localStorage.setItem(LK, JSON.stringify(lost)); } catch (e) { toast("Could not save on this device"); }
+  drawLost(); toast("Pin saved on this device");
+}
+$("lostbtn").addEventListener("click", () => {
+  if (ME) { addLost(ME.lon, ME.lat); return; }
+  picking = !picking; $("lostbtn").classList.toggle("on", picking);
+  renderer.domElement.style.cursor = picking ? "crosshair" : "";
+  if (picking) toast("Tap the map where the disc went, or switch on your position first");
+});
+{
+  const rc = new THREE.Raycaster(); let dn = null;
+  renderer.domElement.addEventListener("pointerdown", (e) => { dn = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener("pointerup", (e) => {
+    if (!picking || !dn || Math.hypot(e.clientX - dn[0], e.clientY - dn[1]) > 5) return;
+    rc.setFromCamera(new THREE.Vector2(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
+    const hit = rc.intersectObject(terrain, false)[0];
+    if (!hit) return;
+    picking = false; $("lostbtn").classList.remove("on"); renderer.domElement.style.cursor = "";
+    const ll = window.CE.toLonLat(hit.point.x, hit.point.z); addLost(ll.lon, ll.lat);
+  });
+}
+
+// ---------- layers pane: seasons, lost list, links ----------
+{ // the settings live behind a gear next to the weather, like on the ski map
+  const btn = document.createElement("button"); btn.className = "ibtn ms"; btn.id = "gearbtn"; btn.title = "Settings";
+  btn.setAttribute("aria-label", "Settings"); btn.setAttribute("aria-expanded", "false"); btn.textContent = "settings";
+  const pop = document.createElement("div"); pop.id = "gearpop"; pop.hidden = true; pop.innerHTML = "<h4>Map settings</h4>"; pop.append($("layer-checks"));
+  $("topright").append(btn); document.body.append(pop);
+  const shut = () => { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", String(!pop.hidden)); if (!pop.hidden) $("wx").open = false; });
+  addEventListener("click", (e) => { if (!pop.hidden && !pop.contains(e.target)) shut(); });
+  $("wx").addEventListener("toggle", () => { if ($("wx").open) shut(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape") shut(); });
+}
+$("layer-checks").insertAdjacentHTML("beforeend", `${D.ortho_alt ? '<div class="lc"><span>Aerial photo</span><div class="seg small" id="photo-seg"><button data-ph="summer" class="on">Summer</button><button data-ph="spring">Spring</button></div></div>' : ""}<div class="lc"><span>Light</span><div class="seg small" id="light-seg"><button data-lt="0.14">Morning</button><button data-lt="0.55" class="on">Midday</button><button data-lt="0.9">Golden</button></div></div>
+  <label class="tg"><span>Caddie-book markers (trunks, OB lines, DZ, mando)</span><input type="checkbox" role="switch" id="lc-mark" checked></label>
+  <div class="lc"><span>Lost discs (this device only)</span><div id="lost-list"></div></div>
+  ${D.links ? `<div class="lc links"><a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a><a href="${D.links.website}" target="_blank" rel="noopener">Club website ↗</a></div>` : ""}`);
+if (D.ortho_alt) {
+  const TL = new THREE.TextureLoader(), photos = { summer: ORTHO.uOrtho.value };   // the summer photo is already loading as the default
+  const photo = (k) => {
+    if (!photos[k]) { photos[k] = TL.load(D.ortho_alt[k], () => invalidate(4)); photos[k].colorSpace = THREE.SRGBColorSpace; photos[k].anisotropy = renderer.capabilities.getMaxAnisotropy(); }
+    return photos[k];
+  };
+  $("photo-seg").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ph]"); if (!b) return;
+    ORTHO.uOrtho.value = photo(b.dataset.ph);
+    document.querySelectorAll("#photo-seg button").forEach((x) => x.classList.toggle("on", x === b)); invalidate(4);
+  });
+}
+$("light-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-lt]"); if (!b) return;
+  setLight(+b.dataset.lt);
+  if (+b.dataset.lt > 0.8) { sun.color.setRGB(1, 0.78, 0.56); lightBase.sunI = 3.2; lightBase.hemiI = 0.95; applyNight(); }   // golden hour: a warmer, stronger low sun
+  document.querySelectorAll("#light-seg button").forEach((x) => x.classList.toggle("on", x === b)); invalidate(8);
+});
+$("layer-checks").insertAdjacentHTML("beforeend", `<p class="gp-credit">${D.attribution}</p>`);
+$("lc-mark").addEventListener("change", (e) => { showMarkers = e.target.checked; if (current) { setHighlight(current); setSelLabels(current); } invalidate(4); });
+$("lost-list").addEventListener("click", (e) => {
+  const go = e.target.closest("[data-go]"), del = e.target.closest("[data-del]");
+  if (go) { const it = lost.find((x) => String(x.id) === go.dataset.go), p = window.CE.fromLonLat(it.lon, it.lat); const d = new THREE.Vector3(p.x - controls.target.x, p.y - controls.target.y, p.z - controls.target.z); goTo({ pos: camera.position.clone().add(d), target: controls.target.clone().add(d) }, 1); }
+  if (del) { lost = lost.filter((x) => String(x.id) !== del.dataset.del); try { localStorage.setItem(LK, JSON.stringify(lost)); } catch (err) { /* ignore */ } drawLost(); }
+  if (e.target.id === "lost-copy") navigator.clipboard?.writeText(JSON.stringify(lost)).then(() => toast("Copied"));
+});
+drawLost();
+
+// ---------- offline: cache the app, the data and the 3D library as they are loaded (not on localhost, to keep dev edits fresh) ----------
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
 // start: hash or whole view
 const start = SKI ? D.features.find((f) => "#" + f.id === location.hash)
   : D.features.find((f) => f.listed && String(f.number) === params.get("hole"));
@@ -1705,7 +2472,7 @@ const first = intro ? paperView() : w;
 camera.position.copy(first.pos); controls.target.copy(first.target);
 if (start) select(start, "overview");
 else if (SKI) renderIdle();
-else { current = tourList[0]; setHighlight(current); setSelLabels(current); renderPanel(current); }
+else discIdle();
 mark("scene built");
 // phones: the first frame is computed before the layout settles; frame the whole map again once it has
 if (phone() && !start) requestAnimationFrame(() => requestAnimationFrame(() => { if (!current && !anim) { const h = wholeView(); camera.position.copy(h.pos); controls.target.copy(h.target); controls.update(); invalidate(); } }));
