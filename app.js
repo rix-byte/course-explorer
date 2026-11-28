@@ -1542,6 +1542,7 @@ function updateLabels() {
     if (fly && l.kind === "pnum") enabled = false;   // no number badge under the ball while flying
     let vis = showLabels && enabled && v3.z < 1 && Math.abs(v3.x) < 1.05 && Math.abs(v3.y) < 1.05
       && camera.position.distanceTo(l.pos) < maxD;
+    if (vis && l.pkey && placedKeys.has(l.pkey)) vis = false;   // this number already has its spot: skip the costly ridge test
     if (vis && l.prio < 100 && occluded(l)) vis = false;   // behind a ridge: do not float over it
     if (vis && l.variants) pickVariant(l);
     if (vis) {
@@ -2653,7 +2654,7 @@ mark("scene built");
 // phones: the first frame is computed before the layout settles; frame the whole map again once it has
 if (phone() && !start && !intro) requestAnimationFrame(() => requestAnimationFrame(() => { if (!current && !anim) { const h = wholeView(); camera.position.copy(h.pos); controls.target.copy(h.target); controls.update(); invalidate(); } }));
 tick();
-setTimeout(() => $("splash")?.classList.add("gone"), 300);
+setTimeout(() => { $("splash")?.classList.add("gone"); try { sessionStorage.removeItem("ce-retry"); } catch (e) { /* private mode */ } }, 300);
 if (intro) {   // as the loading screen fades, swing from the wide shot into the home view (re-measured, the layout has settled by then); any touch stops it
   const introTimer = setTimeout(() => { if (!current) goTo(wholeView(), 3.2, true); }, 450);
   renderer.domElement.addEventListener("pointerdown", () => clearTimeout(introTimer), { once: true });

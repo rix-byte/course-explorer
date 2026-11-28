@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,1,0&display=block" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=202611290500">
+<link rel="stylesheet" href="style.css?v=202611280923">
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -20,6 +20,18 @@
 <body>
 <script>if ((new URLSearchParams(location.search).get("c") || "szczyrk") !== "szczyrk") document.documentElement.classList.add("no-logo"); else document.body.classList.add("t-szczyrk");</script>
 <div id="splash"><div class="logo"><img class="g" src="assets/logo-graphic.svg" alt=""><img class="t" src="assets/logo-text.svg" alt="Szczyrk Mountain Resort"></div><h1 id="splash-title">Course Explorer</h1><p id="splash-sub">Shaping the terrain</p></div>
+<script>
+// Phones can keep an old copy of this page for a while, pointing at an old script. If the map never starts (a script error,
+// or nothing after 40 s), reload once from the network; any error is written on the loading screen so it can be reported.
+(function () {
+  var K = "ce-retry", sub = document.getElementById("splash-sub");
+  function retry() { if (sessionStorage.getItem(K)) return; sessionStorage.setItem(K, "1"); var u = new URL(location.href); u.searchParams.set("r", Date.now()); location.replace(u.href); }
+  function show(m) { if (sub && !document.getElementById("splash").classList.contains("gone")) sub.textContent = "Could not start: " + m; }
+  addEventListener("error", function (e) { show(e.message || "script error"); if (/app\.js|data\//.test(e.filename || "")) retry(); });
+  addEventListener("unhandledrejection", function (e) { show(String(e.reason && e.reason.message || e.reason)); });
+  setTimeout(function () { if (!document.getElementById("splash").classList.contains("gone")) retry(); }, 40000);
+})();
+</script>
 <script>if (new URLSearchParams(location.search).get("c") === "maplehill") {   // first paint already in club style: no flash of the Szczyrk splash
   document.body.classList.add("t-maple");
   document.getElementById("splash").innerHTML = '<div class="logo"><img src="assets/maplehill-logo.png" alt=""></div><h1 id="splash-title">Maple Hill</h1><p id="splash-sub">Hanging the chains</p>';
@@ -79,6 +91,6 @@
     <p class="cam-credit">Live camera · Tatry Mountain Resorts · player by webcamera.pl</p>
   </div>
 </div>
-<script type="module" src="app.js?v=202611290500"></script>
+<script type="module" src="app.js?v=202611280923"></script>
 </body>
 </html>
