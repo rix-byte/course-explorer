@@ -649,3 +649,32 @@ body.t-maple.has-hole .hole-nav { display: flex; gap: 6px; margin-left: auto; al
   body.t-maple:not(.has-hole) #groups .chip { flex: none; min-width: 0; padding: 0; min-height: 40px; }
   body.t-maple #tabs { display: none; }
 }
+
+/* ---- "where am I": in the top bar on wide screens, a floating button under the rescue one on portrait phones ---- */
+@media (max-width: 640px) {
+  #topright #locbtn { position: fixed; right: 8px; top: 112px; z-index: 4; }
+}
+#locbtn.on { background: #ed7102 !important; color: #fff; }
+@media (max-height: 500px) and (min-width: 641px) {   /* landscape phone: rescue as a small icon so it doesn't cover the map */
+  #rescue { width: 40px; height: 40px; padding: 0; justify-content: center; }
+  #rescue > div { display: none; }
+  #panel, body.t-szczyrk #panel { max-height: calc(100vh - 66px); }
+}
+/* the binoculars icon in the x-ray button is an svg too: keep the chart's svg rules off it */
+#profile #pf-xray svg { width: 21px; height: 21px; display: block; color: inherit; background: none; border-radius: 0; cursor: pointer; }
+
+/* distance to the basket while "where am I" is on */
+#distpill { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 6; background: var(--accent, #c62121); color: #fff; padding: 6px 16px; border-radius: 22px; font-size: 13px; box-shadow: 0 3px 12px rgba(0,0,0,.3); white-space: nowrap; }
+#distpill b { font-size: 22px; font-weight: 800; margin-right: 2px; }
+#distpill[hidden] { display: none; }
+.lf-link { display: inline-block; margin-top: 6px; font-weight: 700; font-size: 12px; color: var(--accent, #c62121); text-decoration: none; }
+/* the "i" panel */
+#info { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10,16,24,.55); }
+#info[hidden] { display: none; }
+#info .info-box { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: #fff; color: #313131; border-radius: 12px; border-top: 4px solid var(--accent, #c62121); padding: 12px 16px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+#info header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+#info header b { font-size: 17px; color: var(--accent, #c62121); }
+#info-x { border: 0; background: none; font-size: 26px; line-height: 1; cursor: pointer; color: #666; }
+#info video { width: 100%; border-radius: 8px; background: #000; margin-bottom: 8px; }
+#info ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; } #info li { margin: 4px 0; }
+body.t-maple #infobtn { background: #fff; color: var(--accent, #c62121); }
