@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611290400`);
+await loadScript(`data/${KEY}.js?v=202611290500`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -872,6 +872,10 @@ if (SKI) {
 // ---------- selection highlight ----------
 let highlight = null;
 const dotTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.beginPath(); x.arc(32, 32, 30, 0, 7); x.fill(); return new THREE.CanvasTexture(c); })();
+function nextHoleOf(f) {   // the hole after this one in the same layout (none after the last)
+  if (SKI || f.kind !== "hole") return null;
+  return D.features.find((x) => x.kind === "hole" && x.listed && x.number === f.number + 1) || null;
+}
 function setHighlight(f) {
   if (highlight) { scene.remove(highlight); highlight.traverse((o) => o.geometry && o.geometry.dispose()); }
   const pts = f.kind === "lift" ? f.cable : f.path.map(([x, y, z]) => new THREE.Vector3(x, heightAt(x, z) + (SKI ? 3 : 0.6), z));
@@ -899,6 +903,16 @@ function setHighlight(f) {
     for (const [size, col, order] of (SMALL ? [[7, 0x1c4b94, 3], [4.2, 0xffffff, 4]] : [[9, 0x1c4b94, 3], [5.5, 0xffffff, 4]])) {
       const pts2 = new THREE.Points(geo, new THREE.PointsMaterial({ size: size * pr, sizeAttenuation: false, map: dotTex, alphaTest: 0.5, transparent: true, depthTest: false, color: col }));
       pts2.renderOrder = order; pts2.frustumCulled = false; highlight.add(pts2);
+    }
+    const nx = nextHoleOf(f);
+    if (nx) {   // the walk to the next tee: small grey dots
+      const b0 = curve.getPointAt(1), t1 = V(nx.path[0]), k = Math.max(3, Math.round(Math.hypot(t1.x - b0.x, t1.z - b0.z) / 3.5)), wp = [];
+      for (let i = 1; i < k; i++) { const x = b0.x + (t1.x - b0.x) * i / k, z = b0.z + (t1.z - b0.z) * i / k; wp.push(new THREE.Vector3(x, heightAt(x, z) + 0.5, z)); }
+      const wg = new THREE.BufferGeometry().setFromPoints(wp);
+      for (const [size, col, order] of [[6, 0x6b6968, 3], [3.4, 0xffffff, 4]]) {
+        const w = new THREE.Points(wg, new THREE.PointsMaterial({ size: size * pr, sizeAttenuation: false, map: dotTex, alphaTest: 0.5, transparent: true, depthTest: false, color: col }));
+        w.renderOrder = order; w.frustumCulled = false; highlight.add(w);
+      }
     }
   }
   for (const k of f.ob_water || []) {   // out-of-bounds water: red shoreline
@@ -1477,6 +1491,12 @@ function setSelLabels(f) {
       const poly = D.water[k], cx = poly.reduce((a, q) => a + q[0], 0) / poly.length, cz = poly.reduce((a, q) => a + q[1], 0) / poly.length;
       const l = addLabel("OB", new THREE.Vector3(cx, 0, cz).add(up(2)), "badge", null, 90); l.el.style.background = "#d4312c"; selLabels.push(l);
     }
+    const nx = nextHoleOf(f);
+    if (nx) {   // a tag at the next tee; tap it to go on
+      const t1 = V(nx.path[0]);
+      const l = addLabel(`Hole ${nx.number} tee · ${fmtDist(Math.hypot(t1.x - b.x, t1.z - b.z))}`, t1.clone().add(up(4)), "dark", () => select(nx, "overview"), 80);
+      l.el.style.cursor = "pointer"; selLabels.push(l);
+    }
     for (const [mx, mz] of mandosOf(f)) { const l = addLabel("MANDO", new THREE.Vector3(mx, 0, mz).add(up(5)), "badge", null, 95); l.el.style.background = "#d4312c"; selLabels.push(l); }
     if (showMarkers && f.dgpt) {   // drop zones, numbered from the tee outwards
       const t0 = f.path[0], dzs = [...f.dgpt.dz].sort((p, q) => Math.hypot(p[0] - t0[0], p[1] - t0[2]) - Math.hypot(q[0] - t0[0], q[1] - t0[2]));
@@ -1740,7 +1760,7 @@ function renderProfile(f) {
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Elevation profile">${grid}${strips}${lines}
     <text x="3" y="10" font-size="9" fill="currentColor" opacity=".7">${Math.round(hmax)} m</text><text x="3" y="${H - 8}" font-size="9" fill="currentColor" opacity=".7">${Math.round(hmin)} m</text>
     <line id="pf-cur" x1="0" y1="2" x2="0" y2="${H - 6}" stroke="currentColor" opacity=".85" visibility="hidden"/>${SKI ? '<circle id="pf-pt" r="3.4" fill="#ffd23f" stroke="#fff" stroke-width="1.2" visibility="hidden"/>' : '<ellipse id="pf-pt" rx="4.6" ry="2" fill="#d8342a" stroke="#fff" stroke-width="1" visibility="hidden"/>'}</svg>
-    <div class="pf-bar"><button id="pf-play" class="ms" aria-label="Fly along the run" title="Fly along the run">play_arrow</button>${SKI ? "" : `<button id="pf-xray" class="${corridorOn ? "on" : ""}" aria-label="See through the trees" aria-pressed="${corridorOn}" title="See through the trees (x-ray)"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="15.5" r="3.5"/><circle cx="17.5" cy="15.5" r="3.5"/><path d="M10 15.5h4"/><path d="M3 15l2.2-8.2a2 2 0 0 1 1.9-1.5h.4a2 2 0 0 1 2 2V12"/><path d="M21 15l-2.2-8.2a2 2 0 0 0-1.9-1.5h-.4a2 2 0 0 0-2 2V12"/></svg></button>`}`}<span id="pf-info">Fly along the run</span><span>${fmtLen(L)} ${lenUnit(L)}</span></div>${stats}`;
+    <div class="pf-bar"><button id="pf-play" class="ms" aria-label="Fly along the run" title="Fly along the run">play_arrow</button>${SKI ? "" : `<button id="pf-xray" class="${corridorOn ? "on" : ""}" aria-label="See through the trees" aria-pressed="${corridorOn}" title="See through the trees (x-ray)"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="15.5" r="3.5"/><circle cx="17.5" cy="15.5" r="3.5"/><path d="M10 15.5h4"/><path d="M3 15l2.2-8.2a2 2 0 0 1 1.9-1.5h.4a2 2 0 0 1 2 2V12"/><path d="M21 15l-2.2-8.2a2 2 0 0 0-1.9-1.5h-.4a2 2 0 0 0-2 2V12"/></svg></button>`}<span id="pf-info">Fly along the run</span><span>${fmtLen(L)} ${lenUnit(L)}</span></div>${stats}`;
   box.hidden = false;
 
   const svg = box.querySelector("svg"), cur = box.querySelector("#pf-cur"), pt = box.querySelector("#pf-pt"), info = box.querySelector("#pf-info"), play = box.querySelector("#pf-play");
@@ -2311,7 +2331,16 @@ const u1 = (m) => Math.round(IMPERIAL ? m * 3.28084 : m);
 const uName = IMPERIAL ? "ft" : "m";
 const spName = IMPERIAL ? "mph" : "km/h";
 
+const distPill = document.createElement("div");
+distPill.id = "distpill"; distPill.hidden = true; distPill.setAttribute("aria-live", "polite"); document.body.appendChild(distPill);
+function updateDist(f) {
+  if (!ME || !f || f.kind !== "hole") { distPill.hidden = true; return; }
+  const b = f.path[f.path.length - 1];
+  distPill.innerHTML = `<b>${u1(Math.hypot(ME.x - b[0], ME.z - b[2]))}</b> ${uName} to the basket`;
+  distPill.hidden = false;
+}
 renderHoleCard = function (f) {
+  updateDist(f);
   if (!f) {   // no hole picked: just the booking link
     holeCard.className = "compact"; lastCardHole = null;
     holeCard.innerHTML = D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : "";
@@ -2339,13 +2368,14 @@ renderHoleCard = function (f) {
     const head = WX.speed * Math.cos(rel), cross = WX.speed * Math.sin(rel);
     rows.push(`Wind: ${Math.round(Math.abs(head))} ${spName} ${head >= 0 ? "headwind" : "tailwind"}${Math.abs(cross) >= 2 ? `, ${Math.round(Math.abs(cross))} crosswind from the ${cross > 0 ? "right" : "left"}` : ""}`);
   }
-  if (ME) rows.push(`You: ${u1(Math.hypot(ME.x - b.x, ME.z - b.z))} ${uName} to the basket`);
+  const nx = nextHoleOf(f);
+  if (nx) { const t1 = nx.path[0]; rows.push(`Walk to hole ${nx.number}: ${u1(Math.hypot(t1[0] - b.x, t1[2] - b.z))} ${uName}`); }
   const note = (f.notes || "").replace(/^DGPT 2020: /, "");
   const dz = b.y - a.y;
   holeCard.innerHTML = `<div class="hc-h"><b>Hole ${f.number}</b><span>Par ${f.par ?? "–"}${SMALL ? '<i class="ms hc-chev">expand_more</i>' : ""}</span></div>
     <div class="hc-s"><b>${u1(f.length_m)}</b> ${uName} · ${dz >= 0 ? "▲ uphill" : "▼ downhill"} ${Math.abs(u1(dz))} ${uName}</div>
     <ul>${rows.map((r) => `<li>${r}</li>`).join("")}</ul>${note ? `<p>${note}</p>` : ""}
-    ${D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : ""}`;
+    ${D.videos?.[f.number] ? `<a href="${D.videos[f.number]}" target="_blank" rel="noopener">Watch this hole ▶</a><br>` : ""}${D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : ""}`;
   holeCard.classList.toggle("mini", SMALL && !cardOpen);
   if (f !== lastCardHole) { lastCardHole = f; document.querySelector(".chip.on")?.scrollIntoView({ inline: "center", block: "nearest" }); }
   holeCard.hidden = false;
@@ -2406,7 +2436,7 @@ async function loadWeather() {
   card.hidden = false;
   if (current) renderHoleCard(current);
 }
-if (DG) loadWeather();
+if (DG && GEO) loadWeather();   // courses built without a geo frame have no lon/lat for the forecast
 $("wx").addEventListener("toggle", () => { holeCard.style.visibility = $("wx").open ? "hidden" : ""; });
 
 // ---------- where am I (browser GPS; ?fakegps=lon,lat[,accuracy] to test away from the course) ----------
@@ -2520,7 +2550,7 @@ $("lostbtn").addEventListener("click", () => {
 }
 $("layer-checks").insertAdjacentHTML("beforeend", `${D.ortho_alt ? '<div class="lc"><span>Aerial photo</span><div class="seg small" id="photo-seg"><button data-ph="summer" class="on">Summer</button><button data-ph="spring">Spring</button></div></div>' : ""}<div class="lc"><span>Light</span><div class="seg small" id="light-seg"><button data-lt="0.14">Morning</button><button data-lt="0.55" class="on">Midday</button><button data-lt="0.9">Golden</button></div></div>
   <label class="tg"><span>Caddie-book markers (trunks, OB lines, DZ, mando)</span><input type="checkbox" role="switch" id="lc-mark" checked></label>
-  <div class="lc"><span>Lost discs (this device only)</span><div id="lost-list"></div></div>
+  <div class="lc"><span>Lost discs (this device only)</span><div id="lost-list"></div>${D.links?.lost_found ? `<a class="lf-link" href="${D.links.lost_found}" target="_blank" rel="noopener">Club lost &amp; found ↗</a>` : ""}</div>
   ${D.links ? `<div class="lc links"><a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a><a href="${D.links.website}" target="_blank" rel="noopener">Club website ↗</a></div>` : ""}`);
 if (D.ortho_alt) {
   const TL = new THREE.TextureLoader(), photos = { summer: ORTHO.uOrtho.value };   // the summer photo is already loading as the default
@@ -2540,7 +2570,34 @@ $("light-seg").addEventListener("click", (e) => {
   if (+b.dataset.lt > 0.8) { sun.color.setRGB(1, 0.78, 0.56); lightBase.sunI = 3.2; lightBase.hemiI = 0.95; applyNight(); }   // golden hour: a warmer, stronger low sun
   document.querySelectorAll("#light-seg button").forEach((x) => x.classList.toggle("on", x === b)); invalidate(8);
 });
-$("layer-checks").insertAdjacentHTML("beforeend", `<p class="gp-credit">${D.attribution}</p>`);
+$("layer-checks").insertAdjacentHTML("beforeend", `<button id="embed-copy" class="linkbtn">Copy embed code for a website</button><p class="gp-credit">${D.attribution}</p>`);
+$("embed-copy").addEventListener("click", () => {   // one line the club pastes into its own page
+  const code = `<iframe src="${location.origin}${location.pathname}?c=${KEY}" title="${D.name} 3D course map" width="100%" height="640" style="border:0;border-radius:12px" allow="geolocation; fullscreen" loading="lazy"></iframe>`;
+  (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(() => toast("Embed code copied: paste it into the website"), () => prompt("Copy this embed code:", code));
+});
+// ---- "i": how the map works (with the walkthrough video when there is one) ----
+{
+  const info = document.createElement("button"); info.className = "ibtn ms"; info.id = "infobtn"; info.title = "How the map works"; info.setAttribute("aria-label", "How the map works"); info.textContent = "info";
+  $("topright").insertBefore(info, $("gearbtn"));
+  document.body.insertAdjacentHTML("beforeend", `<div id="info" hidden><div class="info-box" role="dialog" aria-modal="true" aria-labelledby="info-t">
+    <header><b id="info-t">How the map works</b><button id="info-x" aria-label="Close">×</button></header>
+    ${D.howto ? `<video src="${D.howto}" controls playsinline preload="metadata"></video>` : ""}
+    <ul>
+      <li>Pick a layout, then a hole number. Tap the hole again, or the home button, to go back.</li>
+      <li>The hole card shows par, length, slope, wind and the rules. On a phone, tap it to open.</li>
+      <li><b>▶</b> flies a disc down the hole. The binoculars let you see through the trees.</li>
+      <li><b>‹ ›</b> next to the hole name step to the previous or next hole. Grey dots lead to the next tee.</li>
+      <li>The satellite button (or the handle on the left edge) shows the aerial photo.</li>
+      <li>The target button shows where you are and how far it is to the basket. <b>Lost a disc</b> marks a spot.</li>
+      <li>The gear holds the photo, light and caddie-book settings.</li>
+    </ul></div></div>`);
+  const box = $("info"), vid = box.querySelector("video");
+  const shut = () => { box.hidden = true; vid?.pause(); };
+  info.addEventListener("click", (e) => { e.stopPropagation(); box.hidden = false; });
+  $("info-x").addEventListener("click", shut);
+  box.addEventListener("click", (e) => { if (e.target === box) shut(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && !box.hidden) shut(); });
+}
 $("lc-mark").addEventListener("change", (e) => { showMarkers = e.target.checked; if (current) { setHighlight(current); setSelLabels(current); } invalidate(4); });
 $("lost-list").addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]"), del = e.target.closest("[data-del]");
