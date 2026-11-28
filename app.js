@@ -1457,6 +1457,14 @@ function openCam(c) {
   box.querySelector(".cam-frame").replaceChildren(f);
   box.hidden = false; $("cam-x").focus();
 }
+// "i" button: the 24-second video, fetched only when opened
+{
+  const box = $("how"), vid = box.querySelector("video"), close = () => { box.hidden = true; vid.pause(); };
+  $("howbtn").addEventListener("click", () => { box.hidden = false; if (!vid.getAttribute("src")) vid.src = "assets/szczyrk-3d.mp4"; vid.play().catch(() => {}); $("how-x").focus(); });
+  $("how-x").addEventListener("click", close);
+  box.addEventListener("pointerdown", (e) => { if (e.target === box) close(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && !box.hidden) close(); });
+}
 $("cam-x").addEventListener("click", closeCam);
 $("cam").addEventListener("pointerdown", (e) => { if (e.target === $("cam")) closeCam(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape") closeCam(); });

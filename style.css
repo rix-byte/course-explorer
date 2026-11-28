@@ -678,3 +678,11 @@ body.t-maple.has-hole .hole-nav { display: flex; gap: 6px; margin-left: auto; al
 #info video { width: 100%; border-radius: 8px; background: #000; margin-bottom: 8px; }
 #info ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; } #info li { margin: 4px 0; }
 body.t-maple #infobtn { background: #fff; color: var(--accent, #c62121); }
+
+/* ---- "i" button: how the map works (video popup) ---- */
+#how { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 18, 28, .55); }
+#how[hidden] { display: none; }
+#how .cam-box { width: min(920px, 100%); }
+#how video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+#how-x { width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .18); color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+#how-x:hover, #how-x:focus-visible { background: #ed7102; color: #fff; outline: none; }
