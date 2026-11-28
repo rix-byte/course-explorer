@@ -342,8 +342,8 @@ body.t-maple .cam-box { background: #fff; color: var(--ink); }
 #curtain { z-index: 8; width: 0; background: none; box-shadow: none; }
 body.t-maple #curtain button { top: 150px; }
 /* everything moves right a little so the left edge strip stays free for the handle */
-#panel { left: 50px; } #brand { left: 50px; }
-@media (max-width: 640px) { #panel { left: 0; } #brand { left: 50px; } }
+body.t-maple #panel { left: 50px; } body.t-maple #brand { left: 50px; }
+@media (max-width: 640px) { body.t-maple #panel { left: 0; } body.t-maple #brand { left: 50px; } }
 body.t-maple #splash .logo { display: flex !important; filter: none; }
 body.t-maple #splash .logo img { width: 130px; height: auto; border-radius: 10px; }
 @media (max-width: 640px) { #holecard { top: 58px; width: min(220px, 56vw); font-size: 11.5px; } body.t-maple #curtain button { top: 124px; } }
@@ -531,12 +531,12 @@ body.t-szczyrk #panel > .phead { margin-top: 0; }
 .hc-chev { font-style: normal; vertical-align: middle; margin-left: 4px; font-size: 20px; color: var(--ink-2, #666); }
 #holecard:not(.mini) .hc-chev { transform: rotate(180deg); display: inline-block; }
 @media (pointer: coarse) {
-  .chip { min-height: 42px; }
-  .seg button { min-height: 38px; }
-  #pf-play, #pf-xray { width: 42px; height: 42px; }
-  .ibtn { width: 44px; height: 44px; }
-  .pillbtn { height: 44px; }
-  #tabs button { min-height: 40px; }
+  body.t-maple .chip { min-height: 42px; }
+  body.t-maple .seg button { min-height: 38px; }
+  body.t-maple #pf-play, body.t-maple #pf-xray { width: 42px; height: 42px; }
+  body.t-maple .ibtn { width: 44px; height: 44px; }
+  body.t-maple .pillbtn { height: 44px; }
+  body.t-maple #tabs button { min-height: 40px; }
   body.t-maple #curtain button { width: 48px; height: 48px; margin: -24px 0 0 -24px; }
 }
 
