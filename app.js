@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611290300`);
+await loadScript(`data/${KEY}.js?v=202611290400`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -84,7 +84,10 @@ const SMALL = !SKI && (innerWidth <= 640 || (matchMedia("(pointer: coarse)").mat
 
 // ---------- geography: the scene is a metric frame on the lon/lat box (x east, z south). For "where am I" / "disc lost about here". ----------
 {
-  const G = D.terrain.geo;
+  // older ski builds carry only the frame centre: rebuild the same metres-per-degree factors as tools/common.py deg_m()
+  const fromFrame = (fr) => { const p = fr.lat0 * Math.PI / 180;
+    return { lon0: fr.lon0, lat0: fr.lat0, kx: 111412.84 * Math.cos(p) - 93.5 * Math.cos(3 * p) + 0.118 * Math.cos(5 * p), kz: 111132.92 - 559.82 * Math.cos(2 * p) + 1.175 * Math.cos(4 * p) - 0.0023 * Math.cos(6 * p) }; };
+  const G = D.terrain.geo || (D.frame && fromFrame(D.frame));
   if (G) window.CE = {   // CE.fromLonLat(lon, lat) -> {x, z, y}; CE.toLonLat(x, z) -> {lon, lat}; y = metres above the terrain minimum
     fromLonLat: (lon, lat) => { const x = (lon - G.lon0) * G.kx, z = -(lat - G.lat0) * G.kz; return { x, z, y: heightAt(x, z) }; },
     toLonLat: (x, z) => ({ lon: G.lon0 + x / G.kx, lat: G.lat0 - z / G.kz }),
@@ -1737,7 +1740,7 @@ function renderProfile(f) {
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Elevation profile">${grid}${strips}${lines}
     <text x="3" y="10" font-size="9" fill="currentColor" opacity=".7">${Math.round(hmax)} m</text><text x="3" y="${H - 8}" font-size="9" fill="currentColor" opacity=".7">${Math.round(hmin)} m</text>
     <line id="pf-cur" x1="0" y1="2" x2="0" y2="${H - 6}" stroke="currentColor" opacity=".85" visibility="hidden"/>${SKI ? '<circle id="pf-pt" r="3.4" fill="#ffd23f" stroke="#fff" stroke-width="1.2" visibility="hidden"/>' : '<ellipse id="pf-pt" rx="4.6" ry="2" fill="#d8342a" stroke="#fff" stroke-width="1" visibility="hidden"/>'}</svg>
-    <div class="pf-bar"><button id="pf-play" class="ms" aria-label="Fly along the run" title="Fly along the run">play_arrow</button>${SKI ? "" : `<button id="pf-xray" class="ms${corridorOn ? " on" : ""}" aria-label="See through the trees" aria-pressed="${corridorOn}" title="See through the trees (x-ray)">search</button>`}<span id="pf-info">Fly along the run</span><span>${fmtLen(L)} ${lenUnit(L)}</span></div>${stats}`;
+    <div class="pf-bar"><button id="pf-play" class="ms" aria-label="Fly along the run" title="Fly along the run">play_arrow</button>${SKI ? "" : `<button id="pf-xray" class="${corridorOn ? "on" : ""}" aria-label="See through the trees" aria-pressed="${corridorOn}" title="See through the trees (x-ray)"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="15.5" r="3.5"/><circle cx="17.5" cy="15.5" r="3.5"/><path d="M10 15.5h4"/><path d="M3 15l2.2-8.2a2 2 0 0 1 1.9-1.5h.4a2 2 0 0 1 2 2V12"/><path d="M21 15l-2.2-8.2a2 2 0 0 0-1.9-1.5h-.4a2 2 0 0 0-2 2V12"/></svg></button>`}`}<span id="pf-info">Fly along the run</span><span>${fmtLen(L)} ${lenUnit(L)}</span></div>${stats}`;
   box.hidden = false;
 
   const svg = box.querySelector("svg"), cur = box.querySelector("#pf-cur"), pt = box.querySelector("#pf-pt"), info = box.querySelector("#pf-info"), play = box.querySelector("#pf-play");
@@ -1787,10 +1790,9 @@ function select(f, mode = "overview", onDone) {
   history.replaceState(null, "", SKI ? `?c=${KEY}#${f.id}` : `?c=${KEY}&layout=${LAYOUT}&pin=${PIN}&hole=${f.number}`);
   if (mode === "fly") startFly(f, onDone);
   else {
-    goTo(viewFor(f, mode), SKI && compact() ? 0.9 : 1.6);
-    if (SKI && compact()) setTimeout(() => {   // phones: the sheet and fonts settle after the tap, so frame the run once more with the final layout (unless the user already moved the map)
-      if (current === f && !fly && viewMode === mode && !touched) goTo(viewFor(f, mode), 0.5);
-    }, 450);
+    // one motion: wait two frames so the folded sheet has its final size, then fly straight to the framed run
+    if (SKI && compact()) requestAnimationFrame(() => requestAnimationFrame(() => { if (current === f && !fly && viewMode === mode) goTo(viewFor(f, mode), 1.2); }));
+    else goTo(viewFor(f, mode));
   }
   touched = false;
 }
@@ -2034,6 +2036,40 @@ if (SKI) {
     $("wx").addEventListener("toggle", () => { if ($("wx").open) shut(); });
     addEventListener("keydown", (e) => { if (e.key === "Escape") shut(); });
   }
+  if (window.CE && navigator.geolocation) {   // where am I: a blue dot from the phone's GPS (?fakegps=lon,lat to test away from the mountain)
+    const btn = document.createElement("button"); btn.className = "ibtn ms"; btn.id = "locbtn"; btn.title = "Where am I";
+    btn.setAttribute("aria-label", "Show my position"); btn.setAttribute("aria-pressed", "false"); btn.textContent = "my_location";
+    $("topright").insertBefore(btn, $("gearbtn"));
+    const say = (m) => { let el = $("toast"); if (!el) { el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); } el.textContent = m; el.hidden = false; clearTimeout(say.t); say.t = setTimeout(() => { el.hidden = true; }, 3500); };
+    const tex = canvasTex(26, 26, (g) => { g.fillStyle = "#fff"; g.beginPath(); g.arc(13, 13, 12, 0, 7); g.fill(); g.fillStyle = "#2f7bff"; g.beginPath(); g.arc(13, 13, 8.5, 0, 7); g.fill(); });
+    const dot = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex.tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+    dot.renderOrder = 10; dot.visible = false; scene.add(dot);
+    let watch = null, first = true;
+    const stop = () => { if (watch != null && watch !== -1) navigator.geolocation.clearWatch(watch); watch = null; dot.visible = false; btn.classList.remove("on"); btn.setAttribute("aria-pressed", "false"); invalidate(4); };
+    const put = (lon, lat) => {
+      const p = window.CE.fromLonLat(lon, lat);
+      if (p.x < X0 - 300 || p.x > X0 + T.width + 300 || p.z < Z0 - 300 || p.z > Z0 + T.depth + 300) {
+        const km = Math.hypot(p.x - (X0 + T.width / 2), p.z - (Z0 + T.depth / 2)) / 1000;
+        say(`You are ${km.toFixed(km < 10 ? 1 : 0)} km from the resort`); stop(); return;
+      }
+      dot.position.set(p.x, p.y + 2, p.z); dot.scale.set(...pinScale(tex), 1); dot.visible = true;
+      if (first) {   // slide the view over to you, keeping the angle
+        first = false;
+        const d = new THREE.Vector3(p.x - controls.target.x, p.y - controls.target.y, p.z - controls.target.z);
+        goTo({ pos: camera.position.clone().add(d), target: controls.target.clone().add(d) }, 1.1);
+      }
+      invalidate(4);
+    };
+    btn.addEventListener("click", () => {
+      if (watch != null) { stop(); return; }
+      btn.classList.add("on"); btn.setAttribute("aria-pressed", "true"); first = true; watch = -1;
+      const fake = params.get("fakegps");
+      if (fake) { const [lo, la] = fake.split(",").map(Number); put(lo, la); return; }
+      watch = navigator.geolocation.watchPosition((pos) => put(pos.coords.longitude, pos.coords.latitude),
+        (err) => { say(err.code === 1 ? "Location is blocked for this site" : "No GPS fix yet"); stop(); },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    });
+  }
   const LAYERS = [...(STATUS ? [["status", "Open / closed"]] : []), ["pistes", "Piste numbers"], ["services", "Services"], ["pois", "Parking & bus"], ["snow", "Snowmaking"], ["lifts", "Lifts"]];
   $("layer-checks").innerHTML = LAYERS.map(([k, n]) =>
     `<label class="tg"><span>${n}</span><input type="checkbox" role="switch" data-g="${k}" ${groupOn[k] ? "checked" : ""}></label>`).join("");
@@ -2072,7 +2108,7 @@ if (SKI) {
     $("layer-legend").querySelectorAll(".lg-row").forEach((x) => x.classList.toggle("on", !!tag && x.dataset.tag === tag));
     $("legend-pill").hidden = !tag; $("lp-t").textContent = label || "";
     if (nightGroup) nightGroup.visible = nightTarget > 0.5 || tag === "run:lit";
-    if (tag && phone()) $("panel").classList.add("min");   // phone: fold the sheet down to its tab bar so the map is what you see
+    if (phone()) $("panel").classList.toggle("min", !!tag);   // phone: fold the sheet to its tab bar while something is shown; clearing it brings the legend list back
     updateViewOffset(); labels.forEach((l) => { l.w = 0; }); setMute(); invalidate(6);
   };
   $("layer-legend").addEventListener("click", (e) => {
@@ -2548,17 +2584,20 @@ if (!SKI) openTab("g0");   // hole list open from the start (after the loop help
 updateViewOffset();
 const w = wholeView();
 const intro = SKI && !start && params.get("intro") !== "0" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
-const first = intro ? paperView() : w;
+// the way in: a wide shot, higher and turned ~25 deg, that swings round and closes in on the home view
+const wideOf = (v) => { const s = toSph(v.pos.clone().sub(v.target)), r = s.r * 2.2, pol = Math.max(0.15, s.polar - 0.3), az = s.az + 0.45;
+  return { pos: new THREE.Vector3(Math.sin(pol) * Math.sin(az) * r, Math.cos(pol) * r, Math.sin(pol) * Math.cos(az) * r).add(v.target), target: v.target.clone() }; };
+const first = intro ? wideOf(w) : w;
 camera.position.copy(first.pos); controls.target.copy(first.target);
 if (start) select(start, "overview");
 else if (SKI) renderIdle();
 else discIdle();
 mark("scene built");
 // phones: the first frame is computed before the layout settles; frame the whole map again once it has
-if (phone() && !start) requestAnimationFrame(() => requestAnimationFrame(() => { if (!current && !anim) { const h = wholeView(); camera.position.copy(h.pos); controls.target.copy(h.target); controls.update(); invalidate(); } }));
+if (phone() && !start && !intro) requestAnimationFrame(() => requestAnimationFrame(() => { if (!current && !anim) { const h = wholeView(); camera.position.copy(h.pos); controls.target.copy(h.target); controls.update(); invalidate(); } }));
 tick();
 setTimeout(() => $("splash")?.classList.add("gone"), 300);
-if (intro) {   // hold the paper-map view for a moment, then turn into the 3D map; any touch stops it
-  const introTimer = setTimeout(() => goTo(w, 4.2, true), 1500);
+if (intro) {   // as the loading screen fades, swing from the wide shot into the home view (re-measured, the layout has settled by then); any touch stops it
+  const introTimer = setTimeout(() => { if (!current) goTo(wholeView(), 3.2, true); }, 450);
   renderer.domElement.addEventListener("pointerdown", () => clearTimeout(introTimer), { once: true });
 }

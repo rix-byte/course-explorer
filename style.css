@@ -649,3 +649,14 @@ body.t-maple.has-hole .hole-nav { display: flex; gap: 6px; margin-left: auto; al
   body.t-maple:not(.has-hole) #groups .chip { flex: none; min-width: 0; padding: 0; min-height: 40px; }
   body.t-maple #tabs { display: none; }
 }
+
+/* ---- "where am I": in the top bar on wide screens, a floating button under the rescue one on portrait phones ---- */
+@media (max-width: 640px) {
+  #topright #locbtn { position: fixed; right: 8px; top: 112px; z-index: 4; }
+}
+#locbtn.on { background: #ed7102 !important; color: #fff; }
+@media (max-height: 500px) and (min-width: 641px) {   /* landscape phone: rescue as a small icon so it doesn't cover the map */
+  #rescue { width: 40px; height: 40px; padding: 0; justify-content: center; }
+  #rescue > div { display: none; }
+  #panel, body.t-szczyrk #panel { max-height: calc(100vh - 66px); }
+}
