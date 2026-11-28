@@ -19,7 +19,7 @@ function loadScript(src) {
   });
 }
 
-await loadScript(`data/${KEY}.js?v=202611290200`);
+await loadScript(`data/${KEY}.js?v=202611290300`);
 mark("data loaded");
 // Open / closed status: a small JSON next to the data (demo data now; a real feed fills the same shape).
 let STATUS = null, statusVisible = true;
@@ -357,14 +357,14 @@ terrainMat.onBeforeCompile = (sh) => {
   sh.uniforms.mapOverlay = { value: mapTex };
   sh.uniforms.fadeNear = { value: SKI ? 380 : 1e6 };
   sh.uniforms.fadeFar = { value: SKI ? 1500 : 2e6 };
-  sh.uniforms.uSlope = slopeU; sh.uniforms.uSeasonT = TU.uSeason; sh.uniforms.uDetail = { value: SKI ? 0 : 1 };
+  sh.uniforms.uSlope = slopeU; sh.uniforms.uDetail = { value: SKI ? 0 : 1 };
   Object.assign(sh.uniforms, ORTHO);
   sh.vertexShader = sh.vertexShader
     .replace("#include <common>", "#include <common>\nvarying vec3 vWN;\nvarying vec3 vWPos;")
     .replace("#include <project_vertex>", "#include <project_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;")
     .replace("#include <beginnormal_vertex>", "#include <beginnormal_vertex>\nvWN = objectNormal;");
   sh.fragmentShader = sh.fragmentShader
-    .replace("#include <common>", "#include <common>\nuniform sampler2D mapOverlay;\nuniform float fadeNear, fadeFar, uSlope, uCurtain, uSeasonT;\nuniform sampler2D uOrtho;\nuniform vec2 uRes;\nvarying vec3 vWN;\nvarying vec3 vWPos;\nuniform float uDetail;\nfloat h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nfloat vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }")
+    .replace("#include <common>", "#include <common>\nuniform sampler2D mapOverlay;\nuniform float fadeNear, fadeFar, uSlope, uCurtain;\nuniform sampler2D uOrtho;\nuniform vec2 uRes;\nvarying vec3 vWN;\nvarying vec3 vWPos;\nuniform float uDetail;\nfloat h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nfloat vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }")
     .replace("#include <map_fragment>", `#include <map_fragment>
       vec4 ov = texture2D(mapOverlay, vMapUv);
       diffuseColor.rgb = mix(diffuseColor.rgb, ov.rgb, ov.a * smoothstep(fadeNear, fadeFar, length(vViewPosition)));
@@ -382,13 +382,6 @@ terrainMat.onBeforeCompile = (sh) => {
         if (nearA > 0.0) v += (vn(vWPos.xz * 0.30) - 0.5) * 0.14 * nearA;
         if (nearB > 0.0) v += (vn(vWPos.xz * 2.6) - 0.5) * 0.24 * nearB;
         diffuseColor.rgb *= 1.0 + v * grassM;
-      }
-      if (uSeasonT > 0.5) {   // autumn: grass -> orange-yellow, water darker
-        vec3 c = diffuseColor.rgb;
-        float wat = smoothstep(0.02, 0.10, c.b - c.r);
-        float grn = smoothstep(0.0, 0.06, c.g - c.r) * (1.0 - wat);
-        diffuseColor.rgb = mix(c, vec3(c.g * 1.12, c.g * 0.80, c.g * 0.30), grn * 0.72);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.74, 0.80, 0.86), wat);
       }
       if (gl_FragCoord.x < uCurtain * uRes.x) diffuseColor.rgb = texture2D(uOrtho, vMapUv).rgb;   // aerial photo curtain`);
 };
@@ -615,8 +608,18 @@ function merge(parts) {
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 const treeGroup = new THREE.Group();
-// see-through mechanics for disc golf: trees can be flattened (canopy slider) or removed along the selected hole
-const TU = { uSeason: { value: 0 }, uCut: { value: 1e4 }, uSeg: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uSegN: { value: 0 }, uRad: { value: 18 }, uRadCut: { value: 30 }, uXray: { value: 1 } };
+// see-through for disc golf: trees within uRad of the selected hole's line are drawn as a ghost (x-ray)
+const TU = { uSeg: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }, uSegN: { value: 0 }, uRad: { value: 18 }, uXray: { value: 1 } };
+// 1 when the tree standing at p is within uRad of the selected hole's line (and x-ray is on); shared by the colour and shadow passes
+const GHOST_GLSL = `float treeGhost(vec2 p) {
+  for (int i = 0; i < 8; i++) {
+    if (i >= uSegN) break;
+    vec2 a = uSeg[i].xy, ba = uSeg[i].zw - a, pa = p - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+    if (length(pa - ba * h) < uRad) return uXray;
+  }
+  return 0.0;
+}`;
 let corridorOn = !SKI;
 const CLEAR_U = { value: SKI ? 70 : 24 };   // trees collapse within CLEAR_U of the camera (off while flying)
 // Trees are split into ~450 m cells. Each cell is its own instanced mesh, so cells outside the view are skipped (also in the
@@ -629,84 +632,61 @@ const TREE_FAR = SMALL ? 520 : 950, treeCells = [];
   const hiGeo = [coniferGeo(), broadleafGeo()];
   const loGeo = [merge([[new THREE.ConeGeometry(3.3, 15, 5, 1, true).translate(0, 7.5, 0), WINTER ? 0x2b4a38 : 0x2c5134]]),
                  merge([[new THREE.IcosahedronGeometry(4.8, 0).translate(0, 8.5, 0), 0x4d7a37]])];
-  const makeMat = (broad) => {
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
-  // trees right next to the camera collapse away so tee / ground-level views are not blocked
+  const makeMat = () => {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.clearR = CLEAR_U;
     Object.assign(sh.uniforms, TU);
+    sh.uniforms.uCurtainT = ORTHO.uCurtain; sh.uniforms.uResT = ORTHO.uRes;
     sh.vertexShader = sh.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float clearR, uRad, uRadCut, uXray;\nuniform int uSegN;\nuniform vec4 uSeg[8];\nvarying float vHt, vGhost, vNear;\nvarying vec2 vTree;")
-      .replace("#include <begin_vertex>", `#include <begin_vertex>
-        vHt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y - (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).y;
-        vGhost = 0.0; vNear = 0.0;
-        vTree = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz;`)
+      .replace("#include <common>", `#include <common>
+uniform float clearR, uRad, uXray;
+uniform int uSegN;
+uniform vec4 uSeg[8];
+varying float vGhost;
+${GHOST_GLSL}`)
       .replace("#include <project_vertex>", `#include <project_vertex>
         vec3 treeBase = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        // trees right next to the camera collapse away so tee / ground-level views are not blocked
         if (distance(treeBase.xz, cameraPosition.xz) < clearR && cameraPosition.y - treeBase.y < 60.0) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
-        for (int i = 0; i < 8; i++) {   // no trees within uRad of the selected hole's line
-          if (i >= uSegN) break;
-          vec2 a = uSeg[i].xy, ba = uSeg[i].zw - a, pa = treeBase.xz - a;
-          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
-          float dd = length(pa - ba * h);
-          if (dd < uRad) vGhost = uXray;
-          if (dd < uRadCut) vNear = 1.0;
-        }`);
-    // fragment side: slice at uCut metres above each tree's base; ghost trees keep ~15% of their pixels (screen-door dither)
-    sh.uniforms.uCut = TU.uCut; sh.uniforms.uCurtainT = ORTHO.uCurtain; sh.uniforms.uResT = ORTHO.uRes;
+        vGhost = treeGhost(treeBase.xz);`);
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float uCut, uSeason, uCurtainT;\nuniform vec2 uResT;\nvarying float vHt, vGhost, vNear;\nvarying vec2 vTree;")
+      .replace("#include <common>", `#include <common>
+uniform float uCurtainT;
+uniform vec2 uResT;
+varying float vGhost;`)
       .replace("void main() {", `void main() {
-        if (vNear > 0.5 && vHt > uCut) discard;   // canopy slider: only trees along the selected hole
         if (gl_FragCoord.x < uCurtainT * uResT.x) discard;   // the aerial photo side shows the ground only
-        if (vGhost > 0.5 && fract(dot(floor(gl_FragCoord.xy * 0.5), vec2(0.7548777, 0.5698403))) > 0.3) discard;`)
-      .replace("#include <color_fragment>", "#include <color_fragment>\n        if (!gl_FrontFacing) diffuseColor.rgb = vec3(0.66, 0.50, 0.33);   // a sliced trunk / crown shows cut wood\n        if (vGhost > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.80, 0.93, 1.0), 0.5);");
-    sh.uniforms.uSeason = TU.uSeason;
-    if (!broad) sh.fragmentShader = sh.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
-        if (uSeason > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.50, 0.16), 0.24);   // autumn: a touch of yellow in the conifers`);
-    if (broad) {   // seasons: crowns are the green parts (trunks are brown); autumn recolours them per tree
-      sh.fragmentShader = sh.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
-        if (diffuseColor.g > diffuseColor.r + 0.01) {
-          if (uSeason > 0.5) {
-            float h = fract(sin(dot(vTree, vec2(12.9898, 78.233))) * 43758.5453);
-            vec3 c = h < 0.3 ? vec3(0.80, 0.22, 0.10) : h < 0.65 ? vec3(0.90, 0.50, 0.10) : vec3(0.93, 0.76, 0.18);
-            diffuseColor.rgb = c * (0.72 + 0.6 * diffuseColor.g);
-          }
-        }`);
-    }
+        if (vGhost > 0.5 && fract(dot(floor(gl_FragCoord.xy * 0.5), vec2(0.7548777, 0.5698403))) > 0.3) discard;   // x-ray: a screen-door ghost`)
+      .replace("#include <color_fragment>", `#include <color_fragment>
+        if (vGhost > 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.80, 0.93, 1.0), 0.5);`);
   };
-  mat.customProgramCacheKey = () => (broad ? "tb" : "tc");
+  mat.customProgramCacheKey = () => "tree";
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  depth.onBeforeCompile = (sh) => {   // the shadow pass: x-ray trees cast none, sliced trees cast the sliced shadow
-    Object.assign(sh.uniforms, { uRad: TU.uRad, uRadCut: TU.uRadCut, uXray: TU.uXray, uSegN: TU.uSegN, uSeg: TU.uSeg, uCut: TU.uCut });
+  depth.onBeforeCompile = (sh) => {   // the shadow pass: x-ray trees cast no shadow
+    Object.assign(sh.uniforms, { uRad: TU.uRad, uXray: TU.uXray, uSegN: TU.uSegN, uSeg: TU.uSeg });
     sh.vertexShader = sh.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uRad, uRadCut, uXray;\nuniform int uSegN;\nuniform vec4 uSeg[8];\nvarying float vHt, vGhost, vNear;")
+      .replace("#include <common>", `#include <common>
+uniform float uRad, uXray;
+uniform int uSegN;
+uniform vec4 uSeg[8];
+varying float vGhost;
+${GHOST_GLSL}`)
       .replace("#include <begin_vertex>", `#include <begin_vertex>
-        vec3 tb0 = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        vHt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y - tb0.y;
-        vGhost = 0.0; vNear = 0.0;
-        for (int i = 0; i < 8; i++) {
-          if (i >= uSegN) break;
-          vec2 a = uSeg[i].xy, ba = uSeg[i].zw - a, pa = tb0.xz - a;
-          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
-          float dd = length(pa - ba * h);
-          if (dd < uRad) vGhost = uXray;
-          if (dd < uRadCut) vNear = 1.0;
-        }`);
+        vGhost = treeGhost((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz);`);
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float uCut;\nvarying float vHt, vGhost, vNear;")
+      .replace("#include <common>", `#include <common>
+varying float vGhost;`)
       .replace("void main() {", `void main() {
-        if (vGhost > 0.5) discard;
-        if (vNear > 0.5 && vHt > uCut) discard;`);
+        if (vGhost > 0.5) discard;`);
   };
   depth.customProgramCacheKey = () => "treedepth";
   mat.userData.depth = depth;
   return mat; };
-  const mats = [makeMat(false), makeMat(true)];
+  const treeMat = makeMat(), mats = [treeMat, treeMat];
   const cells = new Map();
-  let ti = 0;
   for (const t0 of D.trees) {
-    if (SMALL && (ti++ % 5) < 2) continue;   // phones: 60% of the trees, a little larger to keep the look
+    if (SMALL && Math.floor(Math.abs(t0[0] * 7.31 + t0[1] * 3.17)) % 5 < 2) continue;   // phones: 60% of the trees, a little larger to keep the look
     const t = SMALL ? [t0[0], t0[1], t0[2] * 1.12, t0[3]] : t0;
     const ix = Math.floor((t[0] - X0) / CELL), iz = Math.floor((t[1] - Z0) / CELL), key = ix * 4096 + iz;
     let c = cells.get(key);
@@ -1007,7 +987,26 @@ function viewFor(f, mode) {
     if (s2 < s1) side.negate();
   }
   const ext = Math.max(box.getSize(new THREE.Vector3()).length(), SKI ? 500 : 60) * (innerWidth / Math.max(innerWidth - panelOcc(), innerWidth * 0.5));   // zoom out a bit when the panel takes room
-  // phone ski runs: stand above the start and look down the run, so it climbs the tall screen instead of lying across the narrow width
+  // phone ski runs: the same direction as the home view / printed map, tilted down (about 63 deg), centred on the run and zoomed until it fills the free area
+  // Phone ski runs (matches the hand-placed reference views): start from the printed map's direction, tilted ~50 deg, and turn the
+  // camera only as far as needed for the run to lie as a diagonal from top-left to bottom-right; then zoom until it fills the free area.
+  if (SKI && compact() && D.map_view_azimuth_deg != null && f.kind === "piste") {
+    const a0 = D.map_view_azimuth_deg * Math.PI / 180, tilt = 0.87, chx = end.x - start.x, chz = end.z - start.z;
+    const slopeAt = (a) => {   // the run's on-screen angle, degrees below horizontal going right
+      const fx = -Math.sin(a), fz = Math.cos(a), x = -chx * fz + chz * fx, yup = (chx * fx + chz * fz) * Math.sin(tilt);
+      let s = Math.atan2(-yup, x) * 180 / Math.PI; if (s > 90) s -= 180; if (s <= -90) s += 180; return s;
+    };
+    let turn = 0, miss = 1e9;
+    for (let k = 0; k <= 12; k++) for (const sg of k ? [-1, 1] : [1]) {   // 0, -5, +5, -10, ... up to 60 deg either way; the first one that fits wins
+      const dd = sg * k * 5, s = slopeAt(a0 + dd * Math.PI / 180), m = s < 30 ? 30 - s : s > 65 ? s - 65 : 0;
+      if (m < miss) { miss = m; turn = dd; }
+      if (!m) break;
+    }
+    const az = a0 + turn * Math.PI / 180, hd = new THREE.Vector3(Math.sin(az), 0, -Math.cos(az));
+    const mkP = (e) => ({ pos: mid.clone().addScaledVector(hd, e * Math.cos(tilt)).add(new THREE.Vector3(0, e * Math.sin(tilt), 0)), target: mid });
+    return mkP(Math.max(fitToScreen(mkP, ext, c.getSpacedPoints(30)), 1200));   // never closer than ~1.2 km, so short runs keep their surroundings
+  }
+  // (older phone view, kept for resorts without a printed-map direction) stand above the start and look down the run, so it climbs the tall screen instead of lying across the narrow width
   const mkO = SKI && phone() ? (e) => ({ pos: mid.clone().addScaledVector(d, -e * 0.7).add(new THREE.Vector3(0, e * 0.75, 0)), target: mid })
     : SKI ? (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.75).addScaledVector(d, -e * 0.25).add(new THREE.Vector3(0, e * 0.55, 0)), target: mid })
     : (e) => ({ pos: mid.clone().addScaledVector(side, e * 0.32).addScaledVector(d, -e * 0.22).add(new THREE.Vector3(0, e * 0.95, 0)), target: mid });   // disc golf: ~65 deg down, the line and both ends stay in view
@@ -1047,10 +1046,12 @@ function paperView() {
 
 // portrait phones: back the camera off until every point lands inside the free area above the bottom sheet
 function fitToScreen(mkView, dist, pts) {
-  const cam = camera.clone(), yb = 0.86 * (innerHeight - sheetH()) / innerHeight * (compact() && !phone() ? 1.05 : 1), xb = (compact() && !phone() ? 1.0 : 0.86) * Math.min(1, (innerWidth - panelOcc()) / innerWidth);   // landscape phone: stay clear of the side panel and the top bar
+  const cx = panelOcc() / innerWidth, cy = sheetH() / innerHeight, cam = camera.clone(), yb = 0.86 * (innerHeight - sheetH() - (compact() ? 112 : 0)) / innerHeight *   // phones: keep clear of the top bar too
+    (compact() && !phone() ? 1.05 : 1), xb = (compact() && !phone() ? 1.0 : 0.86) * Math.min(1, (innerWidth - panelOcc()) / innerWidth);   // landscape phone: stay clear of the side panel and the top bar
   for (let i = 0; i < 6; i++) {
     const v = mkView(dist); cam.position.copy(v.pos); cam.lookAt(v.target); cam.updateMatrixWorld(true);
-    let r = 0; for (const q of pts) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x) / xb, Math.abs(nd.y) / yb); }
+    // measure from the centre of the free area: the view offset puts it above (sheet) or right of (side panel) the screen centre
+    let r = 0; for (const q of pts) { const nd = q.clone().project(cam); r = Math.max(r, Math.abs(nd.x - cx) / xb, Math.abs(nd.y - cy) / yb); }
     if (Math.abs(r - 1) < 0.03) break;
     dist *= THREE.MathUtils.clamp(r, 0.6, 2);
   }
@@ -1515,7 +1516,6 @@ function updateLabels() {
     v3.copy(l.pos).project(camera);
     let enabled = l.on ? l.on() : groupOn[l.group] !== false;
     if (legendSel) enabled = !!l.tags?.includes(legendSel.tag);
-    else if (SKI && current && current.kind === "piste" && compact()) enabled = l.kind === "pnum" && l.f === current;   // phone: with a run selected the map shows just that run's number
     if (fly && l.kind === "pnum") enabled = false;   // no number badge under the ball while flying
     let vis = showLabels && enabled && v3.z < 1 && Math.abs(v3.x) < 1.05 && Math.abs(v3.y) < 1.05
       && camera.position.distanceTo(l.pos) < maxD;
@@ -2214,7 +2214,6 @@ function simplifyLine(pts, tol) {   // Douglas-Peucker on [x, z]
   if (dm <= tol) return [a, b];
   return [...simplifyLine(pts.slice(0, k + 1), tol).slice(0, -1), ...simplifyLine(pts.slice(k), tol)];
 }
-function applyTreeShadows() { /* shadows now follow the x-ray and the canopy cut inside the tree shadow shader */ }
 function setCorridor(f) {
   if (SKI) return;
   let n = 0;
@@ -2226,7 +2225,7 @@ function setCorridor(f) {
     for (let i = 0; i < n; i++) TU.uSeg.value[i].set(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
   }
   TU.uSegN.value = n;
-  applyTreeShadows(); invalidate(4);
+  invalidate(4);
 }
 if (!SKI) {
   const photo = !!D.ortho;
@@ -2252,7 +2251,8 @@ if (!SKI) {
 if (!SKI) {
 const DG = true;
 const GEO = T.geo;
-let WX = null, ME = null, cardOpen = false;
+let WX = null, ME = null, cardOpen = false, lastCardHole = null, wxTries = 0;
+const esc = (t) => String(t).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));   // typed text shown as text
 const holeCard = document.createElement("aside");
 holeCard.id = "holecard"; holeCard.hidden = true; document.body.appendChild(holeCard);
 const toastEl = document.createElement("div");
@@ -2277,7 +2277,7 @@ const spName = IMPERIAL ? "mph" : "km/h";
 
 renderHoleCard = function (f) {
   if (!f) {   // no hole picked: just the booking link
-    holeCard.className = "compact";
+    holeCard.className = "compact"; lastCardHole = null;
     holeCard.innerHTML = D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : "";
     holeCard.hidden = !D.links?.tee_times; return;
   }
@@ -2285,14 +2285,17 @@ renderHoleCard = function (f) {
   holeCard.className = "";
   const c = pathCurve(f), L = c.getLength(), at = (m) => c.getPointAt(Math.min(1, m / L));
   const a = at(0), b = at(L), rows = [];
-  const turn = ((bearing(at(L * 0.7), b) - bearing(a, at(L * 0.3)) + 540) % 360) - 180;
-  rows.push(Math.abs(turn) < 12 ? "Straight line" : `Bends ${turn > 0 ? "right" : "left"} about ${Math.round(Math.abs(turn))}°`);
-  let carry = 0, hi = -1e9;
-  for (let m = 0; m <= L; m += 1) {
-    const q = at(m);
-    if (D.water.some((w) => inPoly(q.x, q.z, w))) carry++;
-    if (m % 3 === 0) hi = Math.max(hi, q.y);
+  if (!f._facts) {   // shape, water carry and crest do not change: work them out once (GPS fixes re-draw the card every second)
+    let carry = 0, hi = -1e9;
+    for (let m = 0; m <= L; m += 1) {
+      const q = at(m);
+      if (D.water.some((w) => inPoly(q.x, q.z, w))) carry++;
+      if (m % 3 === 0) hi = Math.max(hi, q.y);
+    }
+    f._facts = { turn: ((bearing(at(L * 0.7), b) - bearing(a, at(L * 0.3)) + 540) % 360) - 180, carry, hi };
   }
+  const { turn, carry, hi } = f._facts;
+  rows.push(Math.abs(turn) < 12 ? "Straight line" : `Bends ${turn > 0 ? "right" : "left"} about ${Math.round(Math.abs(turn))}°`);
   if (carry >= 3) rows.push(`Water carry about ${u1(carry)} ${uName}`);
   if (hi - Math.max(a.y, b.y) > 3) rows.push(`Crest ${u1(hi - a.y)} ${uName} above the tee mid-hole`);
   if (WX) {
@@ -2308,7 +2311,7 @@ renderHoleCard = function (f) {
     <ul>${rows.map((r) => `<li>${r}</li>`).join("")}</ul>${note ? `<p>${note}</p>` : ""}
     ${D.links?.tee_times ? `<a href="${D.links.tee_times}" target="_blank" rel="noopener">Book a tee time ↗</a>` : ""}`;
   holeCard.classList.toggle("mini", SMALL && !cardOpen);
-  document.querySelector(".chip.on")?.scrollIntoView({ inline: "center", block: "nearest" });
+  if (f !== lastCardHole) { lastCardHole = f; document.querySelector(".chip.on")?.scrollIntoView({ inline: "center", block: "nearest" }); }
   holeCard.hidden = false;
 };
 holeCard.addEventListener("click", (e) => { if (!SMALL || e.target.closest("a")) return; cardOpen = !cardOpen; if (current) renderHoleCard(current); });
@@ -2352,7 +2355,7 @@ async function loadWeather() {
       const r = await fetch(url); if (!r.ok) throw new Error(r.status);
       j = await r.json();
       try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), j })); } catch (e) { /* ignore */ }
-    } catch (e) { j = stale; if (!j) { setTimeout(loadWeather, 60e3); return; } }   // rate limit or offline: show the last copy, or try again in a minute
+    } catch (e) { j = stale; if (!j) { if (++wxTries < 4) setTimeout(loadWeather, 60e3); return; } }   // rate limit or offline: show the last copy, or try again in a minute
   }
   const c = j.current, d = j.daily;
   WX = { speed: c.wind_speed_10m, dir: c.wind_direction_10m, gust: c.wind_gusts_10m };
@@ -2431,11 +2434,11 @@ function drawLost() {
     const p = window.CE.fromLonLat(it.lon, it.lat);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: lostTex.tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }));
     sp.center.set(0.5, 0.05); sp.scale.set(...pinScale(lostTex), 1); sp.position.set(p.x, p.y + 0.5, p.z); sp.renderOrder = 9; scene.add(sp); lostSprites.push(sp);
-    const l = addLabel(it.note || "Lost disc", new THREE.Vector3(p.x, p.y + 4, p.z), "badge", null, 55, "lost"); l.el.style.background = "#c62121"; lostLabels.push(l);
+    const l = addLabel(esc(it.note || "Lost disc"), new THREE.Vector3(p.x, p.y + 4, p.z), "badge", null, 55, "lost"); l.el.style.background = "#c62121"; lostLabels.push(l);
   }
   const box = $("lost-list");
   if (box) {
-    box.innerHTML = lost.length ? lost.map((it) => `<div class="lost-row"><span>${it.note || "Lost disc"}<small>${new Date(it.t).toLocaleDateString("en")}</small></span>
+    box.innerHTML = lost.length ? lost.map((it) => `<div class="lost-row"><span>${esc(it.note || "Lost disc")}<small>${new Date(it.t).toLocaleDateString("en")}</small></span>
       <button data-go="${it.id}" class="ms" title="Show on map">my_location</button><button data-del="${it.id}" class="ms" title="Delete">delete</button></div>`).join("")
       + '<button id="lost-copy" class="linkbtn">Copy as JSON</button>' : '<small>None yet. Tap the pin button to add one.</small>';
   }
@@ -2535,8 +2538,6 @@ drawLost();
   }
 }
 
-// ---------- offline: cache the app, the data and the 3D library as they are loaded (not on localhost, to keep dev edits fresh) ----------
-if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
 // start: hash or whole view
